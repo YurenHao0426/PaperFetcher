@@ -1,0 +1,27 @@
+name: Daily Paper Fetch
+
+on:
+  schedule:
+    - cron: '0 12 * * *'  # 每天UTC 12:00 触发
+  workflow_dispatch:       # 支持手动触发
+
+jobs:
+  fetch-and-update-readme:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.10
+
+    - name: Install dependencies
+      run: |
+        pip install requests sentence-transformers feedparser PyGithub
+
+    - name: Run script
+      env:
+        TARGET_REPO_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}  # 之后我们会在主仓库配置这个
+        TARGET_REPO_NAME: "YourUsername/llm-bias-papers"     # 后面我们会改成你的目标仓库名
+      run: python scripts/fetch_papers.py
