@@ -4,89 +4,129 @@ import feedparser
 import datetime
 from github import Github
 
-ARXIV_CATEGORIES = "cs.CL OR cs.AI OR stat.ML OR cs.IR"
+# ========== 你可以根据需要修改的参数 ==========
+
+# 多分类
+CATEGORIES = ["cs.CL", "cs.AI", "stat.ML", "cs.IR"]
+
+# 多关键词，这里用的纯文本搜索，尽量只用单词或简单词组
+# 注意：arXiv 搜索并不支持很复杂的布尔运算，也不支持真正的模糊匹配
 KEYWORDS = ["bias", "debias", "fairness", "equity", "inclusivity", "diversity", "ethical AI", "responsible AI"]
 
+# 在构造查询时，我们会把 KEYWORDS 用 (ti:xxx OR abs:xxx) OR (ti:yyy OR abs:yyy) 组合起来
+# 这样 arXiv 只返回标题或摘要中出现这些关键词的论文
+
+# 最多要处理多少结果（翻页抓取上限）
+MAX_PER_CATEGORY = 300
+
+# GitHub 相关
 TARGET_REPO_TOKEN = os.getenv("TARGET_REPO_TOKEN")
 TARGET_REPO_NAME = os.getenv("TARGET_REPO_NAME")
 
-def fetch_arxiv_papers():
+def build_search_query(keywords, category):
     """
-    从arXiv获取过去24小时的新论文，并打印一些调试信息
+    构造 arXiv API 中的 search_query 字符串（示例： (ti:bias OR abs:bias) OR (ti:fairness OR abs:fairness) ... AND cat:cs.AI）
     """
-    # 使用带时区的UTC时间
-    now_utc = datetime.datetime.now(datetime.timezone.utc)
-    yesterday_utc = now_utc - datetime.timedelta(days=1)
+    # 针对多关键词，构造括号表达式
+    # (ti:bias OR abs:bias) OR (ti:debias OR abs:debias) OR ...
+    kw_expressions = []
+    for kw in keywords:
+        kw_escaped = kw.replace(" ", "+")  # 避免空格等符号出问题
+        part = f"(ti:{kw_escaped}+OR+abs:{kw_escaped})"
+        kw_expressions.append(part)
+    # 用 +OR+ 串联每个关键词
+    combined_keywords = "+OR+".join(kw_expressions)
 
-    print("DEBUG: 当前UTC时间:", now_utc)
-    print("DEBUG: 过去24小时阈值:", yesterday_utc)
+    # 最终把分类也加进来: AND cat:cs.AI
+    query = f"({combined_keywords})+AND+cat:{category}"
+    return query
+
+def search_category_for_24h(category, keywords, hours=24):
+    """
+    在给定分类下，用关键词搜索，按提交时间降序遍历，直到遇到超过24小时的论文就停止。
+    返回满足条件的论文列表
+    """
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    cutoff = now_utc - datetime.timedelta(hours=hours)
 
     base_url = "http://export.arxiv.org/api/query"
-    params = {
-        "search_query": f"cat:{ARXIV_CATEGORIES}",
-        "sortBy": "submittedDate",
-        "sortOrder": "descending",
-        "max_results": 100
-    }
+    query_str = build_search_query(keywords, category)
 
-    # 发起请求
-    r = requests.get(base_url, params=params)
-    print(f"DEBUG: 请求URL = {r.url}")
-    print(f"DEBUG: HTTP状态码 = {r.status_code}")
+    all_papers = []
+    start = 0
+    step = 50  # 每次取多少条，可以 50 或 100
+    while True:
+        params = {
+            "search_query": query_str,
+            "sortBy": "submittedDate",
+            "sortOrder": "descending",
+            "start": start,
+            "max_results": step
+        }
+        print(f"\n[DEBUG] 正在请求分类: {category}, start={start}, 查询URL参数: {params}")
 
-    feed = feedparser.parse(r.content)
-    print(f"DEBUG: feed.entries 长度 = {len(feed.entries)}")
+        resp = requests.get(base_url, params=params)
+        print("[DEBUG] HTTP状态码:", resp.status_code)
+        feed = feedparser.parse(resp.content)
 
-    papers = []
-    for idx, entry in enumerate(feed.entries):
-        published_naive = datetime.datetime.strptime(entry.published, "%Y-%m-%dT%H:%M:%SZ")
-        published_utc = published_naive.replace(tzinfo=datetime.timezone.utc)
+        entries = feed.entries
+        print(f"[DEBUG] 本批返回 {len(entries)} 篇论文 (start={start}).")
 
-        # 调试输出
-        print(f"\n=== 第 {idx+1} 篇论文 ===")
-        print("标题: ", entry.title)
-        print("发布时间(UTC): ", published_utc)
-        print("链接: ", entry.link)
-        print("摘要(前200字符): ", entry.summary[:200], "...")
+        if not entries:
+            break  # 没有更多结果，退出
 
-        if published_utc > yesterday_utc:
-            papers.append({
+        for i, entry in enumerate(entries):
+            # 解析发布时间
+            published_naive = datetime.datetime.strptime(entry.published, "%Y-%m-%dT%H:%M:%SZ")
+            published_utc = published_naive.replace(tzinfo=datetime.timezone.utc)
+
+            if published_utc < cutoff:
+                # 一旦发现超过24小时的论文，因为是降序，所以后面都没必要看了
+                print(f"[DEBUG] 论文 {entry.title} 时间 {published_utc} 已超过 {cutoff}, 提前退出本分类循环")
+                break
+
+            # 如果在24小时内，加入列表
+            all_papers.append({
                 "title": entry.title,
                 "url": entry.link,
-                "abstract": entry.summary
+                "abstract": entry.summary,
+                "published": published_utc
             })
-            print("--> 该论文在24小时之内，加入papers列表")
+
         else:
-            print("--> 该论文超过24小时，不加入")
+            # 如果 for 循环是正常结束（没有 break），说明本批都在24小时内
+            # 需要翻页继续抓取下一批
+            # 但要防止无限翻页：如果超过我们设定的上限，也跳出
+            start += step
+            if start >= MAX_PER_CATEGORY:
+                print(f"[DEBUG] 已达本分类抓取上限 {MAX_PER_CATEGORY} 篇, 停止继续翻页。")
+                break
+            continue
 
-    print(f"\nDEBUG: 最终 papers 长度 = {len(papers)}")
-    return papers
+        # 如果执行到了 break，则要退出 while True
+        break
 
-def filter_papers(papers):
+    print(f"[DEBUG] 分类 {category} 最终收集到 {len(all_papers)} 篇论文（24小时内）")
+    return all_papers
+
+def fetch_arxiv_papers_24h():
     """
-    用关键词匹配，返回与 KEYWORDS 匹配的论文，并打印调试信息
+    遍历多个分类，对每个分类做关键词搜索并合并结果
+    去重逻辑(简单版本)可按title+published来判断是否已出现
     """
-    relevant = []
-    for idx, p in enumerate(papers):
-        abstract_lower = p["abstract"].lower()
-        title_lower = p["title"].lower()
+    unique_papers = []
+    seen_set = set()  # 用来去重，存放 (title, published)
 
-        # 调试打印
-        found_keywords = []
-        for kw in KEYWORDS:
-            if kw.lower() in abstract_lower or kw.lower() in title_lower:
-                found_keywords.append(kw)
+    for cat in CATEGORIES:
+        cat_papers = search_category_for_24h(cat, KEYWORDS, hours=24)
+        for p in cat_papers:
+            key = (p["title"], p["published"])
+            if key not in seen_set:
+                seen_set.add(key)
+                unique_papers.append(p)
 
-        if found_keywords:
-            print(f"\n[匹配] 第 {idx+1} 篇论文: {p['title']}")
-            print("匹配到的关键词: ", found_keywords)
-            relevant.append(p)
-        else:
-            print(f"\n[未匹配] 第 {idx+1} 篇论文: {p['title']}")
-            print("没有匹配到任何关键词")
-
-    print(f"\nDEBUG: relevant_papers 长度 = {len(relevant)}")
-    return relevant
+    print(f"[DEBUG] 全部分类合并后共 {len(unique_papers)} 篇论文。")
+    return unique_papers
 
 def update_readme_in_target(relevant_papers):
     """
@@ -96,25 +136,25 @@ def update_readme_in_target(relevant_papers):
         print("No relevant papers found. Skipping README update.")
         return
 
-    # 创建 GitHub 客户端
+    # 按提交时间降序排序再写入，也许你想先写最新的
+    relevant_papers.sort(key=lambda x: x["published"], reverse=True)
+
     g = Github(TARGET_REPO_TOKEN)
     repo = g.get_repo(TARGET_REPO_NAME)
 
-    # 获取 README
-    print(f"DEBUG: 获取目标仓库 {TARGET_REPO_NAME} 的 README.md")
     readme_file = repo.get_contents("README.md", ref="main")
     readme_content = readme_file.decoded_content.decode("utf-8")
 
     date_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-    new_section = f"\n\n### {date_str}\n"
-
+    new_section = f"\n\n### {date_str} (自动关键词搜索)\n"
     for p in relevant_papers:
-        new_section += f"- **[{p['title']}]({p['url']})**\n"
+        # 时间显示一下
+        pub_str = p["published"].strftime("%Y-%m-%d %H:%M UTC")
+        new_section += f"- **[{p['title']}]({p['url']})** (Published: {pub_str})\n"
 
     updated_content = readme_content + new_section
-    print(f"DEBUG: 即将在 README.md 添加的内容:\n{new_section}")
+    print(f"[DEBUG] 即将在 README.md 添加的内容:\n{new_section}")
 
-    # 更新 README
     repo.update_file(
         path="README.md",
         message=f"Auto Update README with {len(relevant_papers)} papers ({date_str})",
@@ -122,14 +162,17 @@ def update_readme_in_target(relevant_papers):
         sha=readme_file.sha,
         branch="main"
     )
-    print("DEBUG: README.md 更新完成")
+    print("[DEBUG] README.md 更新完成")
 
 def main():
-    print("DEBUG: 开始执行 main() ...")
-    papers = fetch_arxiv_papers()
-    relevant_papers = filter_papers(papers)
-    update_readme_in_target(relevant_papers)
-    print("DEBUG: 脚本执行结束.")
+    print("[DEBUG] 开始执行 main() ...")
+    # 1. 从 arXiv 获取过去24小时的论文（带关键词搜索 & 多分类 & 自动停止）
+    papers_24h = fetch_arxiv_papers_24h()
+
+    # 2. 将结果写入目标仓库
+    update_readme_in_target(papers_24h)
+
+    print("[DEBUG] 脚本执行结束.")
 
 if __name__ == "__main__":
     main()
