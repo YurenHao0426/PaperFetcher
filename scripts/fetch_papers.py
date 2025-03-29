@@ -1,178 +1,69 @@
-import os
 import requests
 import feedparser
 import datetime
-from github import Github
 
-# ========== 你可以根据需要修改的参数 ==========
-
-# 多分类
-CATEGORIES = ["cs.CL", "cs.AI", "stat.ML", "cs.IR"]
-
-# 单个关键词列表（避免多词短语搜索不到）
-# 如果想搜索短语，可尝试 "ti:\"ethical AI\"+OR+abs:\"ethical AI\"" 但效果可能并不好
-KEYWORDS = [
-    "bias",
-    "debias",
-    "fairness",
-    "equity",
-    "inclusivity",
-    "diversity",
-    "ethical",
-    "responsible",
-    # 如果想搜索 AI 这个单词，可以加进去，但“AI”几乎会命中太多论文
-    # "AI"
-]
-
-# 设置要抓取的时间范围（过去 7 天，便于测试）
-HOURS_TO_FETCH = 24 * 7  # 7天
-
-# 最大抓取数
-MAX_PER_CATEGORY = 300
-
-# GitHub 相关
-TARGET_REPO_TOKEN = os.getenv("TARGET_REPO_TOKEN")
-TARGET_REPO_NAME = os.getenv("TARGET_REPO_NAME")
-
-
-def build_search_query_single_word(keyword, category):
+def fetch_arxiv_bias_fairness(days=3):
     """
-    对单个词构造类似于  (ti:bias OR abs:bias) AND cat:cs.AI
-    注意：arXiv搜索要求把空格等转成 "+"
+    从 arXiv 中搜索过去 N 天内包含 'bias' OR 'fairness' 等关键词的论文
+    分类限定为 cs.IR (可自行改)，使用 all: 字段 + submittedDate range + 本地过滤
     """
-    kw_escaped = keyword.replace(" ", "+")
-    query = f"(ti:{kw_escaped}+OR+abs:{kw_escaped})+AND+cat:{category}"
-    return query
+    now = datetime.datetime.utcnow()
+    start_day = now - datetime.timedelta(days=days)
+    # 构造日期范围 (只精确到天就行)
+    # 格式: [YYYYMMDD0000 TO YYYYMMDD2359]
+    start_str = start_day.strftime("%Y%m%d0000")
+    end_str = now.strftime("%Y%m%d2359")
 
-def search_category_7days(category, keywords, hours=HOURS_TO_FETCH):
-    """
-    在给定分类下，用【单词关键词】循环搜索，每个keyword都请求一次，然后合并去重。
-    这样避免了 (keyword1 OR keyword2) 对arXiv API可能无效的问题。
-    依旧按提交时间降序遍历，直到遇到超过 hours 范围的论文就停。
-    """
-    now_utc = datetime.datetime.now(datetime.timezone.utc)
-    cutoff = now_utc - datetime.timedelta(hours=hours)
+    # arXiv 布尔搜索表达式
+    # 这里演示2个关键词 bias, fairness
+    # 用 (all:bias OR all:fairness)
+    # 同时限制分类 cat:cs.IR
+    # 同时限制日期 submittedDate:[start_str TO end_str]
+    # 并指定 sortBy=submittedDate
+    search_query = f"(all:bias+OR+all:fairness)+AND+cat:cs.IR+AND+submittedDate:[{start_str}+TO+{end_str}]"
 
-    all_papers = []
-    seen = set()  # 用来去重
+    base_url = "http://export.arxiv.org/api/query"
+    params = {
+        "search_query": search_query,
+        "sortBy": "submittedDate",
+        "sortOrder": "descending",
+        "max_results": 100
+    }
+    print("[DEBUG] search_query=", search_query)
 
-    for kw in keywords:
-        base_url = "http://export.arxiv.org/api/query"
-        start = 0
-        step = 50
+    response = requests.get(base_url, params=params)
+    print("[DEBUG] Full URL =", response.url)
+    if response.status_code != 200:
+        print("[ERROR] HTTP Status:", response.status_code)
+        return []
 
-        while True:
-            query_str = build_search_query_single_word(kw, category)
-            params = {
-                "search_query": query_str,
-                "sortBy": "submittedDate",
-                "sortOrder": "descending",
-                "start": start,
-                "max_results": step
-            }
+    feed = feedparser.parse(response.content)
+    entries = feed.entries
+    print("[DEBUG] arXiv 返回条数:", len(entries))
 
-            print(f"\n[DEBUG] 分类={category}, 关键词={kw}, start={start}, 请求参数={params}")
-            resp = requests.get(base_url, params=params)
-            print("[DEBUG] HTTP状态码:", resp.status_code)
-            feed = feedparser.parse(resp.content)
-            entries = feed.entries
-            print(f"[DEBUG] 本批返回 {len(entries)} 篇论文.")
+    papers = []
+    for e in entries:
+        title = e.title
+        summary = e.summary
+        published = e.published
+        link = e.link
 
-            if not entries:
-                break  # 没有更多结果了
+        # 在本地再做一个严格的匹配
+        # 看标题或摘要中是否真的含 bias/fairness
+        # 以免 all:bias 命中其他字段
+        text = (title + " " + summary).lower()
+        if ("bias" in text) or ("fairness" in text):
+            papers.append({
+                "title": title,
+                "published": published,
+                "link": link
+            })
 
-            stop_fetch = False  # 如果遇到超过7天的论文，就置为 True 并跳出
-
-            for entry in entries:
-                published_naive = datetime.datetime.strptime(entry.published, "%Y-%m-%dT%H:%M:%SZ")
-                published_utc = published_naive.replace(tzinfo=datetime.timezone.utc)
-
-                if published_utc < cutoff:
-                    # 这篇及后面都不用看了，按提交时间降序
-                    print(f"[DEBUG] 论文 {entry.title[:60]}... 已超过 {cutoff} 提交时间")
-                    stop_fetch = True
-                    break
-
-                # 去重判断
-                unique_key = (entry.id, published_utc)
-                if unique_key in seen:
-                    continue
-
-                seen.add(unique_key)
-                all_papers.append({
-                    "title": entry.title,
-                    "url": entry.link,
-                    "abstract": entry.summary,
-                    "published": published_utc
-                })
-
-            if stop_fetch:
-                # 跳出 while True
-                break
-
-            start += step
-            if start >= MAX_PER_CATEGORY:
-                print(f"[DEBUG] 已达本分类抓取上限 {MAX_PER_CATEGORY} 篇, 停止继续翻页。")
-                break
-
-    print(f"[DEBUG] 分类 {category} 最终收集到 {len(all_papers)} 篇论文（过去{hours}小时内，含重复去重）")
-    return all_papers
-
-def fetch_arxiv_papers():
-    """
-    遍历多个分类，对每个分类做关键词搜索再合并
-    """
-    total_papers = []
-    for cat in CATEGORIES:
-        cat_papers = search_category_7days(cat, KEYWORDS, HOURS_TO_FETCH)
-        total_papers.extend(cat_papers)
-
-    print(f"[DEBUG] 所有分类加起来总数: {len(total_papers)}")
-
-    # 这里不再二次去重，因为我们在search_category_7days内部对同分类+同一关键词已做去重
-    # 如果你想进一步去重（不同分类之间有重叠），可以在此做 set() 处理
-
-    return total_papers
-
-def update_readme_in_target(papers):
-    if not papers:
-        print("[DEBUG] No relevant papers found. Skipping README update.")
-        return
-
-    # 按提交时间降序
-    papers.sort(key=lambda x: x["published"], reverse=True)
-
-    g = Github(TARGET_REPO_TOKEN)
-    repo = g.get_repo(TARGET_REPO_NAME)
-
-    readme_file = repo.get_contents("README.md", ref="main")
-    readme_content = readme_file.decoded_content.decode("utf-8")
-
-    date_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-    new_section = f"\n\n### {date_str} (过去{HOURS_TO_FETCH}小时内单词搜索)\n"
-    for p in papers:
-        pub_str = p["published"].strftime("%Y-%m-%d %H:%M")
-        new_section += f"- **[{p['title']}]({p['url']})** (Published: {pub_str} UTC)\n"
-
-    updated_content = readme_content + new_section
-
-    print(f"[DEBUG] 即将在 README.md 添加的内容:\n{new_section[:500]}...")  # 只打印500字作为示例
-
-    repo.update_file(
-        path="README.md",
-        message=f"Auto Update README with {len(papers)} papers ({date_str})",
-        content=updated_content,
-        sha=readme_file.sha,
-        branch="main"
-    )
-    print("[DEBUG] README.md 更新完成")
-
-def main():
-    print("[DEBUG] 脚本开始执行...")
-    papers = fetch_arxiv_papers()
-    print(f"[DEBUG] fetch_arxiv_papers() 返回 {len(papers)} 篇最终论文.")
-    update_readme_in_target(papers)
-    print("[DEBUG] 脚本执行结束.")
+    return papers
 
 if __name__ == "__main__":
-    main()
+    # 测试过去3天
+    results = fetch_arxiv_bias_fairness(days=3)
+    print(f"找到 {len(results)} 篇论文：")
+    for i, p in enumerate(results, 1):
+        print(f"{i}. {p['title']} - {p['published']} - {p['link']}")
