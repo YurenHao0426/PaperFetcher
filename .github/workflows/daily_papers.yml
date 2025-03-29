@@ -22,6 +22,6 @@ jobs:
 
     - name: Run script
       env:
-        TARGET_REPO_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}  # 之后我们会在主仓库配置这个
-        TARGET_REPO_NAME: "YourUsername/llm-bias-papers"     # 后面我们会改成你的目标仓库名
+        TARGET_REPO_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}  # 
+        TARGET_REPO_NAME: "YurenHao0426/llm-bias-papers"     # 
       run: python scripts/fetch_papers.py
