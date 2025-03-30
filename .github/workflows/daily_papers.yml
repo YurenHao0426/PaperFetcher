@@ -6,10 +6,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  fetch-and-update-readme:
-    runs-on: ubuntu-latest  # 或 ubuntu-22.04
+  fetch-job:
+    runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - name: Check out
+      uses: actions/checkout@v4
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -18,10 +19,11 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install requests sentence-transformers feedparser PyGithub
+        pip install requests feedparser PyGithub
 
-    - name: Run script
+    - name: Run fetch script
       env:
-        TARGET_REPO_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
-        TARGET_REPO_NAME: "YurenHao0426/llm-bias-papers"
-      run: python scripts/fetch_papers.py
+        TARGET_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}      # GitHub 的自动 token
+        TARGET_REPO_NAME: "YourName/TargetRepo"
+        UIUC_API_KEY: ${{ secrets.UIUC_API_KEY }}          # 取出你的API密钥
+      run: python fetch_and_update_readme_api.py
