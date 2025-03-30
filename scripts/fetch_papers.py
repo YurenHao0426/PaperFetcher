@@ -12,11 +12,7 @@ ALLOWED_CATEGORIES = [
     "cs.LG",  # Machine Learning
     "cs.NE",  # Neural and Evolutionary Computing
     "cs.RO",  # Robotics
-    "cs.CY",  # Computers and Society
-    "cs.HC",  # Human-Computer Interaction
     "cs.IR",  # Information Retrieval
-    "cs.GL",  # General Literature
-    "cs.SI",  # Social and Information Networks
     "stat.ML" # Stat.ML
 ]
 
@@ -151,26 +147,27 @@ def main():
     # 1) 抓取过去3天, 关键词=["bias","fairness"]
     days = 1
     keywords = [
-    "LLM bias",
-    "language model bias",
-    "debiasing",
-    "bias mitigation",
-    "fairness LLM",
-    "bias reduction",
-    "algorithmic fairness",
-    "model fairness",
-    "bias detection",
-    "ethical LLM",
-    "responsible AI",
-    "bias evaluation",
-    "fairness evaluation",
-    "bias correction",
-    "ethical AI",
-    "fairness metrics",
-    "unbiased LLM",
-    "bias measurement",
-    "alignment bias",
-    "bias assessment"
+        "bias",
+        "LLM bias",
+        "language model bias",
+        "debiasing",
+        "bias mitigation",
+        "fairness LLM",
+        "bias reduction",
+        "algorithmic fairness",
+        "model fairness",
+        "bias detection",
+        "ethical LLM",
+        "responsible AI",
+        "bias evaluation",
+        "fairness evaluation",
+        "bias correction",
+        "ethical AI",
+        "fairness metrics",
+        "unbiased LLM",
+        "bias measurement",
+        "alignment bias",
+        "bias assessment"
     ]
 
     papers = fetch_papers_wide_then_filter(days=days, keywords=keywords)
