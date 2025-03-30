@@ -26,4 +26,4 @@ jobs:
         TARGET_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}      # GitHub 的自动 token
         TARGET_REPO_NAME: "YurenHao0426/awesome-llm-bias-papers"
         UIUC_API_KEY: ${{ secrets.UIUC_API_KEY }}          # 取出你的API密钥
-      run: python fetch_papers.py
+      run: python scripts/fetch_papers.py
