@@ -149,8 +149,30 @@ def update_readme_in_repo(papers, token, repo_name):
 
 def main():
     # 1) 抓取过去3天, 关键词=["bias","fairness"]
-    days = 3
-    keywords = ["bias", "fairness"]
+    days = 1
+    keywords = [
+    "LLM bias",
+    "language model bias",
+    "debiasing",
+    "bias mitigation",
+    "fairness LLM",
+    "bias reduction",
+    "algorithmic fairness",
+    "model fairness",
+    "bias detection",
+    "ethical LLM",
+    "responsible AI",
+    "bias evaluation",
+    "fairness evaluation",
+    "bias correction",
+    "ethical AI",
+    "fairness metrics",
+    "unbiased LLM",
+    "bias measurement",
+    "alignment bias",
+    "bias assessment"
+    ]
+
     papers = fetch_papers_wide_then_filter(days=days, keywords=keywords)
     print(f"\n[RESULT] matched {len(papers)} papers. Will update README if not empty.")
 
