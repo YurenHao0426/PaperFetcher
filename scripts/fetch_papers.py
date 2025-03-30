@@ -189,7 +189,7 @@ def update_readme_in_repo(papers, token, repo_name):
 #####################
 
 def main():
-    days = 1
+    days = 7
     papers = fetch_arxiv_papers_with_api(days=days)
     print(f"[RESULT] matched {len(papers)} papers. Will update README if not empty.")
 
