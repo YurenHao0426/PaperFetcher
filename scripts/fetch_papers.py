@@ -16,16 +16,48 @@ ALLOWED_CATEGORIES = [
     "stat.ML" # Stat.ML
 ]
 
-def fetch_papers_wide_then_filter(days=1, keywords=None):
+def advanced_filter(entry):
     """
-    从 arXiv 中抓取过去 N 天内提交的所有论文（只限制时间 submittedDate），
-    然后在本地过滤：
-      1) 只保留 tags 中包含 ALLOWED_CATEGORIES（若论文有多分类，只要有任意一个符合就OK）
-      2) 标题或摘要里包含指定关键词
+    判断一篇论文是否含有正面关键词组合（bias/fairness + LLM/transformer/GPT等），
+    且不包含负面关键词（统计、物理、电路等）。
     """
-    if keywords is None:
-        keywords = ["bias", "fairness"]
+    import re
 
+    # 减少重复处理，先统一转小写
+    title = getattr(entry, 'title', '').lower()
+    summary = getattr(entry, 'summary', '').lower()
+    full_text = title + " " + summary
+
+    # 1) 正面关键词
+    #    - 必须含有 "bias" 或 "fairness"（泛泛概念）
+    #    - 且含有至少一个模型相关关键词
+    general_terms = ["bias", "fairness"]
+    model_terms = ["llm", "language model", "transformer", "gpt", "nlp",
+                   "pretrained", "embedding", "generation", "alignment", "ai"]
+
+    # 2) 负面关键词（排除统计、物理、电路等无关方向）
+    negative_terms = [
+        "estimation", "variance", "statistical", "sample", "sensor", "circuit",
+        "quantum", "physics", "electronics", "hardware", "transistor", "amplifier"
+    ]
+
+    # 检查正面关键词
+    has_general = any(term in full_text for term in general_terms)
+    has_model   = any(term in full_text for term in model_terms)
+
+    # 检查负面关键词（命中则排除）
+    has_negative = any(term in full_text for term in negative_terms)
+
+    # 只有同时满足“general + model”并且“无负面”才返回True
+    return (has_general and has_model) and (not has_negative)
+
+
+def fetch_papers_wide_then_filter(days=1):
+    """
+    从 arXiv 中抓取过去 N 天内提交的所有论文（限制时间），然后在本地过滤：
+      1) 只保留 tags 中包含 ALLOWED_CATEGORIES（若论文有多分类，只要有任意一个符合就OK）
+      2) 用 advanced_filter() 检查标题或摘要是否满足要求
+    """
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     start_utc = now_utc - datetime.timedelta(days=days)
 
@@ -33,7 +65,7 @@ def fetch_papers_wide_then_filter(days=1, keywords=None):
     end_str = now_utc.strftime("%Y%m%d%H%M")
     print(f"[DEBUG] date range (UTC): {start_str} ~ {end_str} (past {days} days)")
 
-    # 构造 search_query，仅用时间
+    # 构造搜索query，仅用时间
     search_query = f"submittedDate:[{start_str} TO {end_str}]"
 
     base_url = "http://export.arxiv.org/api/query"
@@ -76,11 +108,6 @@ def fetch_papers_wide_then_filter(days=1, keywords=None):
     # -- 本地过滤 --
     matched = []
     for e in all_entries:
-        title = getattr(e, 'title', '')
-        summary = getattr(e, 'summary', '')
-        published = getattr(e, 'published', '')
-        link = getattr(e, 'link', '')
-
         if hasattr(e, 'tags'):
             # e.tags: a list of objects with .term
             categories = [t.term for t in e.tags]
@@ -88,24 +115,20 @@ def fetch_papers_wide_then_filter(days=1, keywords=None):
             categories = []
 
         # 1) 是否属于 ALLOWED_CATEGORIES
-        #    有些论文有多分类，只要其中一个在 ALLOWED_CATEGORIES 里就OK
-        #    例如 "cs.IR", "cs.AI"
         in_allowed_cat = any(cat in ALLOWED_CATEGORIES for cat in categories)
         if not in_allowed_cat:
             continue
 
-        # 2) 是否含关键词
-        text_lower = (title + " " + summary).lower()
-        has_keyword = any(kw.lower() in text_lower for kw in keywords)
-        if has_keyword:
+        # 2) 更精准的组合式关键词筛选
+        if advanced_filter(e):
             matched.append({
-                "title": title,
-                "published": published,
-                "link": link,
+                "title": e.title,
+                "published": e.published,
+                "link": e.link,
                 "categories": categories
             })
 
-    print(f"[DEBUG] matched {len(matched)} papers after local filtering (categories + keywords)")
+    print(f"[DEBUG] matched {len(matched)} papers after local filtering (categories + advanced_filter)")
     return matched
 
 def update_readme_in_repo(papers, token, repo_name):
@@ -144,33 +167,9 @@ def update_readme_in_repo(papers, token, repo_name):
     print(f"[INFO] README updated with {len(papers)} papers.")
 
 def main():
-    # 1) 抓取过去3天, 关键词=["bias","fairness"]
+    # 1) 抓取过去1天
     days = 1
-    keywords = [
-        "bias",
-        "LLM bias",
-        "language model bias",
-        "debiasing",
-        "bias mitigation",
-        "fairness LLM",
-        "bias reduction",
-        "algorithmic fairness",
-        "model fairness",
-        "bias detection",
-        "ethical LLM",
-        "responsible AI",
-        "bias evaluation",
-        "fairness evaluation",
-        "bias correction",
-        "ethical AI",
-        "fairness metrics",
-        "unbiased LLM",
-        "bias measurement",
-        "alignment bias",
-        "bias assessment"
-    ]
-
-    papers = fetch_papers_wide_then_filter(days=days, keywords=keywords)
+    papers = fetch_papers_wide_then_filter(days=days)
     print(f"\n[RESULT] matched {len(papers)} papers. Will update README if not empty.")
 
     # 2) 更新README
