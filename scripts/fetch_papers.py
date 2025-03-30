@@ -124,7 +124,7 @@ def update_readme_in_repo(papers, token, repo_name):
 
 def main():
     # 1. 获取过去3天, keywords=["bias","fairness"] 的论文
-    days = 3
+    days = 1
     keywords = ["bias", "fairness"]
     papers = fetch_papers_wide_then_filter(days=days, keywords=keywords)
     print(f"[RESULT] matched {len(papers)} papers. Now let's update README in target repo if any.")
