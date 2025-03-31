@@ -4,13 +4,11 @@ import feedparser
 import datetime
 from github import Github
 
-# Step 1: 你的分类限制
 ALLOWED_CATEGORIES = [
     "cs.AI", "cs.CL", "cs.CV", "cs.LG", "cs.NE", "cs.RO",
     "cs.IR", "stat.ML"
 ]
 
-# Step 2: 本地高级匹配 (正负关键词)
 def advanced_filter(entry):
     """
     基于标题+摘要，本地进行“正面关键词 + 负面关键词”筛选
@@ -29,15 +27,12 @@ def advanced_filter(entry):
         "sensor", "circuit", "electronics", "hardware"
     ]
 
-    # 检查正面关键词
     has_general = any(term in full_text for term in general_terms)
     has_model   = any(term in full_text for term in model_terms)
-    # 检查负面关键词
     has_negative = any(term in full_text for term in negative_terms)
 
     return (has_general and has_model) and (not has_negative)
 
-# Step 3: 外部API判别
 API_URL = "https://uiuc.chat/api/chat-api/chat"
 MODEL_NAME = "qwen2.5:14b-instruct-fp16"
 SYSTEM_PROMPT = (
@@ -48,7 +43,8 @@ SYSTEM_PROMPT = (
 
 def is_relevant_by_api(title, summary, api_key):
     """
-    调用外部API，根据title+summary判别是否相关（返回True/False）
+    调用外部API，根据title+summary判别是否相关（返回 True/False），
+    并打印调试信息。
     """
     headers = {"Content-Type": "application/json"}
     data = {
@@ -60,7 +56,7 @@ def is_relevant_by_api(title, summary, api_key):
             },
             {
                 "role": "user",
-                "content": SYSTEM_PROMPT + f"Title: {title}\nAbstract: {summary}"
+                "content": f"Title: {title}\nAbstract: {summary}"
             }
         ],
         "api_key": api_key,
@@ -71,18 +67,20 @@ def is_relevant_by_api(title, summary, api_key):
     try:
         resp = requests.post(API_URL, headers=headers, json=data, timeout=30)
         resp.raise_for_status()
-        response_msg = resp.json().get("message", "")
+        full_json = resp.json()
+        # 获取API返回的message
+        response_msg = full_json.get("message", "")
+        print(f"[DEBUG][API] return message='{response_msg.strip()}' for paper title='{title[:60]}...'")
         return (response_msg.strip() == "1")
     except Exception as e:
-        print("[ERROR] calling external API:", e)
+        print("[ERROR][API] calling external API:", e)
         return False
 
-# Step 4: 抓arXiv, 先本地筛, 再API筛
 def fetch_papers_combined(days=1):
     """
     1) 抓过去days天 arXiv论文(宽松)
     2) 本地先过滤(分类 + advanced_filter)
-    3) 对“通过本地筛”的候选，调用API二次判定
+    3) 对“通过本地筛”的候选，调用API二次判定 + debug输出
     """
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     start_utc = now_utc - datetime.timedelta(days=days)
@@ -139,33 +137,32 @@ def fetch_papers_combined(days=1):
         link = getattr(e, "link", "")
         categories = [t.term for t in e.tags] if hasattr(e, 'tags') else []
 
-        # 分类是否允许
         if not any(cat in ALLOWED_CATEGORIES for cat in categories):
             continue
 
-        # 是否通过 advanced_filter
-        if not advanced_filter(e):
-            continue
-
-        local_candidates.append({
-            "title": title,
-            "summary": summary,
-            "published": published,
-            "link": link,
-            "categories": categories
-        })
+        if advanced_filter(e):
+            local_candidates.append({
+                "title": title,
+                "summary": summary,
+                "published": published,
+                "link": link,
+                "categories": categories
+            })
 
     print(f"[DEBUG] local_candidates = {len(local_candidates)} after local filter")
+
+    # Debug: 打印所有local_candidates的标题，看看是不是你预期的那几篇
+    for idx, paper in enumerate(local_candidates, 1):
+        print(f"[DEBUG][LOCAL] #{idx}, title='{paper['title']}' cat={paper['categories']}")
 
     # --- 2) 调API二次判定 ---
     api_key = os.getenv("UIUC_API_KEY")  # 你在Secrets中配置
     if not api_key:
         print("[WARNING] No UIUC_API_KEY found. Skip second filter.")
-        # 如果没api key，就直接return本地候选
         return local_candidates
 
     final_matched = []
-    for paper in local_candidates:
+    for idx, paper in enumerate(local_candidates, 1):
         relevant = is_relevant_by_api(paper["title"], paper["summary"], api_key)
         if relevant:
             final_matched.append({
@@ -174,11 +171,13 @@ def fetch_papers_combined(days=1):
                 "link": paper["link"],
                 "categories": paper["categories"]
             })
+        else:
+            # 如果不相关，就打印个提示
+            print(f"[DEBUG][API] => '0' => exclude paper #{idx}, title='{paper['title'][:60]}...'")
 
     print(f"[DEBUG] final_matched = {len(final_matched)} after API check")
     return final_matched
 
-# Step 5: 写README
 def update_readme_in_repo(papers, token, repo_name):
     if not papers:
         print("[INFO] No matched papers, skip README update.")
@@ -211,6 +210,7 @@ def update_readme_in_repo(papers, token, repo_name):
     print(f"[INFO] README updated with {len(papers)} papers.")
 
 def main():
+    # 抓过去5天(你例子里是5) 或根据需要改
     days = 5
     papers = fetch_papers_combined(days=days)
     print(f"\n[RESULT] matched {len(papers)} papers total after double filter. Now update README if not empty...")
