@@ -36,9 +36,10 @@ def advanced_filter(entry):
 API_URL = "https://uiuc.chat/api/chat-api/chat"
 MODEL_NAME = "qwen2.5:14b-instruct-fp16"
 SYSTEM_PROMPT = (
-    "Based on the given title and abstract, please determine if the paper "
-    "is relevant to both language models and bias (or fairness). "
-    "If yes, respond 1; otherwise respond 0."
+    "You are a helpful assistant. The user will give you a paper title and abstract. "
+    "Your task: Decide if this paper is about large language models (or generative text models) AND about bias/fairness. "
+    "If yes, respond with just a single character: 1. Otherwise, respond with a single character: 0. "
+    "No extra explanation, no punctuation—only the number."
 )
 
 def is_relevant_by_api(title, summary, api_key):
@@ -56,7 +57,7 @@ def is_relevant_by_api(title, summary, api_key):
             },
             {
                 "role": "user",
-                "content": f"Title: {title}\nAbstract: {summary}"
+                "content": SYSTEM_PROMPT + f"Title: {title}\nAbstract: {summary}"
             }
         ],
         "api_key": api_key,
