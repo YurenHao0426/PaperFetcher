@@ -211,7 +211,7 @@ def update_readme_in_repo(papers, token, repo_name):
     print(f"[INFO] README updated with {len(papers)} papers.")
 
 def main():
-    days = 1
+    days = 5
     papers = fetch_papers_combined(days=days)
     print(f"\n[RESULT] matched {len(papers)} papers total after double filter. Now update README if not empty...")
 
