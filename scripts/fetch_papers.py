@@ -56,6 +56,10 @@ def is_relevant_by_api(title, summary, client, model="gpt-4-turbo"):
 def fetch_papers_combined(days=1):
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     start_utc = now_utc - datetime.timedelta(days=days)
+    start_str = start_utc.strftime("%Y%m%d%H%M")
+    end_str = now_utc.strftime("%Y%m%d%H%M")
+
+    search_query = f"submittedDate:[{start_str} TO {end_str}]"
 
     base_url = "http://export.arxiv.org/api/query"
     step = 100
@@ -64,48 +68,24 @@ def fetch_papers_combined(days=1):
 
     while True:
         params = {
-            "search_query": "cat:cs.* OR cat:stat.ML",
+            "search_query": search_query,
             "sortBy": "submittedDate",
             "sortOrder": "descending",
             "start": start,
             "max_results": step
         }
-        print(f"[DEBUG] Fetching batch {start} to {start+step}")
-        try:
-            resp = requests.get(base_url, params=params, timeout=30)
-            if resp.status_code != 200:
-                print(f"[ERROR] HTTP Status Code: {resp.status_code}")
-                break
-            feed = feedparser.parse(resp.content)
-            batch = feed.entries
-            if not batch:
-                print("[DEBUG] No entries returned, stopping fetch.")
-                break
-
-            for e in batch:
-                published_dt = datetime.datetime.strptime(
-                    e.published, "%Y-%m-%dT%H:%M:%SZ"
-                ).replace(tzinfo=datetime.timezone.utc)
-
-                if published_dt >= start_utc:
-                    all_entries.append(e)
-                else:
-                    print("[DEBUG] Reached older entries beyond date range.")
-                    break  # 超出范围，停止继续获取
-
-            if published_dt < start_utc:
-                break  # 日期已经超过，完全停止外层循环
-
-            start += step
-            if start >= 3000:
-                print("[DEBUG] Reached max limit (3000), stopping fetch.")
-                break
-
-        except Exception as e:
-            print(f"[ERROR] Exception during fetching: {e}")
+        resp = requests.get(base_url, params=params, timeout=30)
+        if resp.status_code != 200:
+            break
+        feed = feedparser.parse(resp.content)
+        batch = feed.entries
+        if not batch:
             break
 
-    print(f"[DEBUG] Total papers fetched: {len(all_entries)} after date filtering.")
+        all_entries.extend(batch)
+        start += step
+        if start >= 3000:
+            break
 
     local_candidates = [
         {
@@ -119,27 +99,15 @@ def fetch_papers_combined(days=1):
         if any(cat in ALLOWED_CATEGORIES for cat in [t.term for t in e.tags]) and advanced_filter(e)
     ]
 
-    print(f"[DEBUG] Number of papers after local filtering: {len(local_candidates)}")
-
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if not openai_api_key:
         print("[WARNING] No OPENAI_API_KEY found. Skip second filter.")
         return local_candidates
 
     client = OpenAI(api_key=openai_api_key)
-    final_matched = []
-    for idx, p in enumerate(local_candidates, 1):
-        if is_relevant_by_api(p["title"], p["summary"], client):
-            final_matched.append(p)
-        else:
-            print(f"[DEBUG][API] Paper #{idx} excluded by API.")
-
-    print(f"[DEBUG] Number of papers after OpenAI API filtering: {len(final_matched)}")
+    final_matched = [p for p in local_candidates if is_relevant_by_api(p["title"], p["summary"], client)]
 
     return final_matched
-
-
-
 
 def update_readme_in_repo(papers, token, repo_name):
     if not papers:
@@ -172,26 +140,12 @@ def update_readme_in_repo(papers, token, repo_name):
 
 def main():
     days = 1
-    print(f"[DEBUG] Starting fetch_papers_combined with days={days}")
     papers = fetch_papers_combined(days=days)
-
-    print(f"[DEBUG] After fetch_papers_combined: {len(papers)} papers matched.")
-    if not papers:
-        print("[DEBUG] No papers matched after both local and API filters.")
 
     github_token = os.getenv("TARGET_REPO_TOKEN")
     target_repo_name = os.getenv("TARGET_REPO_NAME")
-
-    print(f"[DEBUG] Github Token Set: {'Yes' if github_token else 'No'}")
-    print(f"[DEBUG] Target Repo Name: {target_repo_name if target_repo_name else 'Not Set'}")
-
     if github_token and target_repo_name and papers:
-        print("[DEBUG] Proceeding to update README in repo...")
         update_readme_in_repo(papers, github_token, target_repo_name)
-        print("[DEBUG] README update completed.")
-    else:
-        print("[INFO] Skipped README update due to missing credentials or no papers matched.")
-
 
 if __name__ == "__main__":
     main()
