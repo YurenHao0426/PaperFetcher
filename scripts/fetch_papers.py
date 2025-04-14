@@ -58,7 +58,6 @@ def fetch_papers_combined(days=1):
     start_utc = now_utc - datetime.timedelta(days=days)
     start_str = start_utc.strftime("%Y%m%d%H%M")
     end_str = now_utc.strftime("%Y%m%d%H%M")
-
     search_query = f"submittedDate:[{start_str} TO {end_str}]"
 
     base_url = "http://export.arxiv.org/api/query"
@@ -76,6 +75,7 @@ def fetch_papers_combined(days=1):
         }
         resp = requests.get(base_url, params=params, timeout=30)
         if resp.status_code != 200:
+            print(f"[ERROR] Failed fetching from arXiv. Status code: {resp.status_code}")
             break
         feed = feedparser.parse(resp.content)
         batch = feed.entries
@@ -86,6 +86,8 @@ def fetch_papers_combined(days=1):
         start += step
         if start >= 3000:
             break
+
+    print(f"[DEBUG] arXiv returned total {len(all_entries)} papers from initial fetch.")
 
     local_candidates = [
         {
@@ -99,15 +101,23 @@ def fetch_papers_combined(days=1):
         if any(cat in ALLOWED_CATEGORIES for cat in [t.term for t in e.tags]) and advanced_filter(e)
     ]
 
+    print(f"[DEBUG] Number of papers after local filtering: {len(local_candidates)}")
+
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if not openai_api_key:
         print("[WARNING] No OPENAI_API_KEY found. Skip second filter.")
         return local_candidates
 
     client = OpenAI(api_key=openai_api_key)
-    final_matched = [p for p in local_candidates if is_relevant_by_api(p["title"], p["summary"], client)]
+    final_matched = []
+    for p in local_candidates:
+        if is_relevant_by_api(p["title"], p["summary"], client):
+            final_matched.append(p)
+
+    print(f"[DEBUG] Number of papers after OpenAI API filtering: {len(final_matched)}")
 
     return final_matched
+
 
 def update_readme_in_repo(papers, token, repo_name):
     if not papers:
@@ -140,16 +150,26 @@ def update_readme_in_repo(papers, token, repo_name):
 
 def main():
     days = 1
+    print(f"[DEBUG] Starting fetch_papers_combined with days={days}")
     papers = fetch_papers_combined(days=days)
 
-    print(f"[FINAL RESULT] Total papers matched: {len(papers)}")  # <--- 添加此行
+    print(f"[DEBUG] After fetch_papers_combined: {len(papers)} papers matched.")
+    if not papers:
+        print("[DEBUG] No papers matched after both local and API filters.")
 
     github_token = os.getenv("TARGET_REPO_TOKEN")
     target_repo_name = os.getenv("TARGET_REPO_NAME")
+
+    print(f"[DEBUG] Github Token Set: {'Yes' if github_token else 'No'}")
+    print(f"[DEBUG] Target Repo Name: {target_repo_name if target_repo_name else 'Not Set'}")
+
     if github_token and target_repo_name and papers:
+        print("[DEBUG] Proceeding to update README in repo...")
         update_readme_in_repo(papers, github_token, target_repo_name)
+        print("[DEBUG] README update completed.")
     else:
-        print("[INFO] No matched papers or missing GitHub credentials.")
+        print("[INFO] Skipped README update due to missing credentials or no papers matched.")
+
 
 if __name__ == "__main__":
     main()
