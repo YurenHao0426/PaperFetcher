@@ -47,7 +47,7 @@ def is_relevant_by_api(title, summary, client, model="gpt-4-turbo"):
             max_tokens=1
         )
         response_msg = dialogue.choices[0].message.content.strip()
-        print(f"[DEBUG][API] return message='{response_msg}' for paper title='{title[:60]}...'")
+        print(f"[DEBUG][API] OpenAI response='{response_msg}' for paper '{title[:60]}...'")
         return response_msg == "1"
     except Exception as e:
         print("[ERROR][API] calling OpenAI API:", e)
@@ -58,7 +58,6 @@ def fetch_papers_combined(days=1):
     start_utc = now_utc - datetime.timedelta(days=days)
     start_str = start_utc.strftime("%Y%m%d%H%M")
     end_str = now_utc.strftime("%Y%m%d%H%M")
-
     search_query = f"submittedDate:[{start_str} TO {end_str}]"
 
     base_url = "http://export.arxiv.org/api/query"
@@ -74,30 +73,45 @@ def fetch_papers_combined(days=1):
             "start": start,
             "max_results": step
         }
-        resp = requests.get(base_url, params=params, timeout=30)
-        if resp.status_code != 200:
-            break
-        feed = feedparser.parse(resp.content)
-        batch = feed.entries
-        if not batch:
+        print(f"[DEBUG] fetching arXiv: {start} to {start+step}")
+        try:
+            resp = requests.get(base_url, params=params, timeout=30)
+            if resp.status_code != 200:
+                print("[ERROR] HTTP Status:", resp.status_code)
+                break
+            feed = feedparser.parse(resp.content)
+            batch = feed.entries
+            print(f"[DEBUG] fetched batch size: {len(batch)}")
+            if not batch:
+                break
+
+            all_entries.extend(batch)
+            start += step
+            if start >= 3000:
+                print("[DEBUG] reached fetch limit 3000, stop.")
+                break
+
+        except Exception as e:
+            print("[ERROR] fetching arXiv:", e)
             break
 
-        all_entries.extend(batch)
-        start += step
-        if start >= 3000:
-            break
+    print(f"[DEBUG] total papers fetched from arXiv: {len(all_entries)}")
 
-    local_candidates = [
-        {
-            "title": e.title,
-            "summary": e.summary,
-            "published": e.published,
-            "link": e.link,
-            "categories": [t.term for t in e.tags]
-        }
-        for e in all_entries
-        if any(cat in ALLOWED_CATEGORIES for cat in [t.term for t in e.tags]) and advanced_filter(e)
-    ]
+    local_candidates = []
+    for e in all_entries:
+        categories = [t.term for t in e.tags] if hasattr(e, 'tags') else []
+        if not any(cat in ALLOWED_CATEGORIES for cat in categories):
+            continue
+        if advanced_filter(e):
+            local_candidates.append({
+                "title": e.title,
+                "summary": e.summary,
+                "published": e.published,
+                "link": e.link,
+                "categories": categories
+            })
+
+    print(f"[DEBUG] candidates after local filter: {len(local_candidates)}")
 
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if not openai_api_key:
@@ -105,12 +119,21 @@ def fetch_papers_combined(days=1):
         return local_candidates
 
     client = OpenAI(api_key=openai_api_key)
-    final_matched = [p for p in local_candidates if is_relevant_by_api(p["title"], p["summary"], client)]
+
+    final_matched = []
+    for idx, paper in enumerate(local_candidates, 1):
+        if is_relevant_by_api(paper["title"], paper["summary"], client):
+            final_matched.append(paper)
+        else:
+            print(f"[DEBUG][API] Excluded paper #{idx}: {paper['title'][:60]}...")
+
+    print(f"[DEBUG] final matched papers after OpenAI filter: {len(final_matched)}")
 
     return final_matched
 
 def update_readme_in_repo(papers, token, repo_name):
     if not papers:
+        print("[INFO] No matched papers, skip README update.")
         return
 
     g = Github(token)
@@ -137,15 +160,24 @@ def update_readme_in_repo(papers, token, repo_name):
         sha=readme_file.sha,
         branch="main"
     )
+    print(f"[INFO] README updated with {len(papers)} papers.")
 
 def main():
     days = 1
+    print(f"[DEBUG] Starting fetch_papers_combined with days={days}")
     papers = fetch_papers_combined(days=days)
+
+    print(f"[DEBUG] After fetch_papers_combined: {len(papers)} papers matched.")
 
     github_token = os.getenv("TARGET_REPO_TOKEN")
     target_repo_name = os.getenv("TARGET_REPO_NAME")
+    print(f"[DEBUG] Github Token Set: {'Yes' if github_token else 'No'}")
+    print(f"[DEBUG] Target Repo Name: {target_repo_name}")
+
     if github_token and target_repo_name and papers:
         update_readme_in_repo(papers, github_token, target_repo_name)
+    else:
+        print("[INFO] Skipped README update due to missing credentials or no papers matched.")
 
 if __name__ == "__main__":
     main()
