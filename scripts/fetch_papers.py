@@ -100,37 +100,35 @@ def fetch_papers_combined(days=1):
             print("[ERROR] Exception during fetching from arXiv:", e)
             break
 
-    print(f"[DEBUG] total fetched papers: {len(all_entries)}")
-
-    local_candidates = []
-    for e in all_entries:
-        categories = [t.term for t in e.tags] if hasattr(e, 'tags') else []
-        if not any(cat in ALLOWED_CATEGORIES for cat in categories):
-            continue
-        if advanced_filter(e):
-            local_candidates.append({
-                "title": e.title,
-                "summary": e.summary,
-                "published": e.published,
-                "link": e.link,
-                "categories": categories
-            })
-
-    print(f"[DEBUG] candidates after local filter: {len(local_candidates)}")
+    print(f"[DEBUG] total fetched papers from arXiv: {len(all_entries)}")
 
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if not openai_api_key:
-        print("[WARNING] No OPENAI_API_KEY found. Skip second filter.")
-        return local_candidates
+        print("[ERROR] OPENAI_API_KEY missing, aborting.")
+        return []
 
     client = OpenAI(api_key=openai_api_key)
 
     final_matched = []
-    for idx, paper in enumerate(local_candidates, 1):
-        if is_relevant_by_api(paper["title"], paper["summary"], client):
-            final_matched.append(paper)
+    for idx, entry in enumerate(all_entries, 1):
+        title = entry.title
+        summary = entry.summary
+        categories = [t.term for t in entry.tags] if hasattr(entry, 'tags') else []
+
+        if not any(cat in ALLOWED_CATEGORIES for cat in categories):
+            continue  # 保留分类过滤，更精准高效（也可去掉）
+
+        if is_relevant_by_api(title, summary, client):
+            final_matched.append({
+                "title": title,
+                "summary": summary,
+                "published": entry.published,
+                "link": entry.link,
+                "categories": categories
+            })
+            print(f"[DEBUG][API] Included #{idx}: {title[:60]}...")
         else:
-            print(f"[DEBUG][API] Excluded paper #{idx}: {paper['title'][:60]}...")
+            print(f"[DEBUG][API] Excluded #{idx}: {title[:60]}...")
 
     print(f"[DEBUG] final matched papers after OpenAI filter: {len(final_matched)}")
 
