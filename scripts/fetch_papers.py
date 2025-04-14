@@ -142,10 +142,14 @@ def main():
     days = 1
     papers = fetch_papers_combined(days=days)
 
+    print(f"[FINAL RESULT] Total papers matched: {len(papers)}")  # <--- 添加此行
+
     github_token = os.getenv("TARGET_REPO_TOKEN")
     target_repo_name = os.getenv("TARGET_REPO_NAME")
     if github_token and target_repo_name and papers:
         update_readme_in_repo(papers, github_token, target_repo_name)
+    else:
+        print("[INFO] No matched papers or missing GitHub credentials.")
 
 if __name__ == "__main__":
     main()
