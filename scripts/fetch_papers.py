@@ -56,11 +56,13 @@ def is_relevant_by_api(title, summary, client, model="gpt-4-turbo"):
 def fetch_papers_combined(days=1):
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     start_utc = now_utc - datetime.timedelta(days=days)
+
     start_str = start_utc.strftime("%Y%m%d%H%M")
     end_str = now_utc.strftime("%Y%m%d%H%M")
-    search_query = f"submittedDate:[{start_str} TO {end_str}]"
 
+    search_query = f"submittedDate:[{start_str} TO {end_str}]"
     base_url = "http://export.arxiv.org/api/query"
+
     step = 100
     start = 0
     all_entries = []
@@ -73,29 +75,32 @@ def fetch_papers_combined(days=1):
             "start": start,
             "max_results": step
         }
-        print(f"[DEBUG] fetching arXiv: {start} to {start+step}")
+        print(f"[DEBUG] fetching arXiv entries: {start} to {start+step}")
+
         try:
             resp = requests.get(base_url, params=params, timeout=30)
             if resp.status_code != 200:
-                print("[ERROR] HTTP Status:", resp.status_code)
+                print(f"[ERROR] HTTP Status Code: {resp.status_code}")
                 break
             feed = feedparser.parse(resp.content)
             batch = feed.entries
             print(f"[DEBUG] fetched batch size: {len(batch)}")
+
             if not batch:
                 break
 
             all_entries.extend(batch)
             start += step
+
             if start >= 3000:
-                print("[DEBUG] reached fetch limit 3000, stop.")
+                print("[DEBUG] Reached 3000 entries limit, stopping.")
                 break
 
         except Exception as e:
-            print("[ERROR] fetching arXiv:", e)
+            print("[ERROR] Exception during fetching from arXiv:", e)
             break
 
-    print(f"[DEBUG] total papers fetched from arXiv: {len(all_entries)}")
+    print(f"[DEBUG] total fetched papers: {len(all_entries)}")
 
     local_candidates = []
     for e in all_entries:
@@ -130,6 +135,7 @@ def fetch_papers_combined(days=1):
     print(f"[DEBUG] final matched papers after OpenAI filter: {len(final_matched)}")
 
     return final_matched
+
 
 def update_readme_in_repo(papers, token, repo_name):
     if not papers:
