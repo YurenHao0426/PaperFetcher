@@ -56,9 +56,6 @@ def is_relevant_by_api(title, summary, client, model="gpt-4-turbo"):
 def fetch_papers_combined(days=1):
     now_utc = datetime.datetime.now(datetime.timezone.utc)
     start_utc = now_utc - datetime.timedelta(days=days)
-    start_str = start_utc.strftime("%Y%m%d%H%M")
-    end_str = now_utc.strftime("%Y%m%d%H%M")
-    search_query = f"submittedDate:[{start_str} TO {end_str}]"
 
     base_url = "http://export.arxiv.org/api/query"
     step = 100
@@ -67,7 +64,7 @@ def fetch_papers_combined(days=1):
 
     while True:
         params = {
-            "search_query": search_query,
+            "search_query": "cat:cs.* OR cat:stat.ML",
             "sortBy": "submittedDate",
             "sortOrder": "descending",
             "start": start,
@@ -82,12 +79,20 @@ def fetch_papers_combined(days=1):
         if not batch:
             break
 
-        all_entries.extend(batch)
+        # 本地过滤日期
+        for e in batch:
+            published_dt = datetime.datetime.strptime(e.published, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+            if published_dt < start_utc:
+                continue  # 超出日期范围
+            all_entries.append(e)
+
+        if len(batch) < step:
+            break  # 已经抓取到底了
         start += step
         if start >= 3000:
             break
 
-    print(f"[DEBUG] arXiv returned total {len(all_entries)} papers from initial fetch.")
+    print(f"[DEBUG] arXiv returned total {len(all_entries)} papers after filtering by published date.")
 
     local_candidates = [
         {
@@ -117,6 +122,7 @@ def fetch_papers_combined(days=1):
     print(f"[DEBUG] Number of papers after OpenAI API filtering: {len(final_matched)}")
 
     return final_matched
+
 
 
 def update_readme_in_repo(papers, token, repo_name):
