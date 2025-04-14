@@ -70,29 +70,42 @@ def fetch_papers_combined(days=1):
             "start": start,
             "max_results": step
         }
-        resp = requests.get(base_url, params=params, timeout=30)
-        if resp.status_code != 200:
-            print(f"[ERROR] Failed fetching from arXiv. Status code: {resp.status_code}")
-            break
-        feed = feedparser.parse(resp.content)
-        batch = feed.entries
-        if not batch:
-            break
+        print(f"[DEBUG] Fetching batch {start} to {start+step}")
+        try:
+            resp = requests.get(base_url, params=params, timeout=30)
+            if resp.status_code != 200:
+                print(f"[ERROR] HTTP Status Code: {resp.status_code}")
+                break
+            feed = feedparser.parse(resp.content)
+            batch = feed.entries
+            if not batch:
+                print("[DEBUG] No entries returned, stopping fetch.")
+                break
 
-        # 本地过滤日期
-        for e in batch:
-            published_dt = datetime.datetime.strptime(e.published, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+            for e in batch:
+                published_dt = datetime.datetime.strptime(
+                    e.published, "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=datetime.timezone.utc)
+
+                if published_dt >= start_utc:
+                    all_entries.append(e)
+                else:
+                    print("[DEBUG] Reached older entries beyond date range.")
+                    break  # 超出范围，停止继续获取
+
             if published_dt < start_utc:
-                continue  # 超出日期范围
-            all_entries.append(e)
+                break  # 日期已经超过，完全停止外层循环
 
-        if len(batch) < step:
-            break  # 已经抓取到底了
-        start += step
-        if start >= 3000:
+            start += step
+            if start >= 3000:
+                print("[DEBUG] Reached max limit (3000), stopping fetch.")
+                break
+
+        except Exception as e:
+            print(f"[ERROR] Exception during fetching: {e}")
             break
 
-    print(f"[DEBUG] arXiv returned total {len(all_entries)} papers after filtering by published date.")
+    print(f"[DEBUG] Total papers fetched: {len(all_entries)} after date filtering.")
 
     local_candidates = [
         {
@@ -115,13 +128,16 @@ def fetch_papers_combined(days=1):
 
     client = OpenAI(api_key=openai_api_key)
     final_matched = []
-    for p in local_candidates:
+    for idx, p in enumerate(local_candidates, 1):
         if is_relevant_by_api(p["title"], p["summary"], client):
             final_matched.append(p)
+        else:
+            print(f"[DEBUG][API] Paper #{idx} excluded by API.")
 
     print(f"[DEBUG] Number of papers after OpenAI API filtering: {len(final_matched)}")
 
     return final_matched
+
 
 
 
