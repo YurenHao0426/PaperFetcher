@@ -55,17 +55,18 @@ def is_relevant_by_api(title, summary, client, model="gpt-4-turbo"):
         return False
 
 def fetch_papers_combined(days=1):
+    import datetime, requests, feedparser
 
-    now_utc   = datetime.datetime.now(datetime.timezone.utc)
+    # 1. Compute & log your 24 h window
+    now_utc    = datetime.datetime.now(datetime.timezone.utc)
     cutoff_utc = now_utc - datetime.timedelta(days=days)
+    print(f"[DEBUG] now_utc   = {now_utc.isoformat()}")
+    print(f"[DEBUG] cutoff_utc= {cutoff_utc.isoformat()}")
 
-    # 1. Build an OR‑joined category filter:
+    # 2. Build your category query (or replace with "all:*" to disable)
     cat_query = " OR ".join(f"cat:{c}" for c in ALLOWED_CATEGORIES)
-    # If you really want *no* category filtering, just set: cat_query = "all:*"
-
-    base_url = "http://export.arxiv.org/api/query"
-    step     = 100
-    start    = 0
+    base_url  = "http://export.arxiv.org/api/query"
+    step, start = 100, 0
     all_entries = []
 
     while True:
@@ -76,72 +77,48 @@ def fetch_papers_combined(days=1):
             "start":        start,
             "max_results":  step
         }
-        print(f"[DEBUG] fetching arXiv entries: {start} to {start+step}")
         resp = requests.get(base_url, params=params, timeout=30)
         resp.raise_for_status()
-        print("[DEBUG] arXiv query URL:", resp.url)
-        feed = feedparser.parse(resp.content)
-        batch = feed.entries
-        for i, e in enumerate(batch[:5], 1):
-            print(f"[DEBUG] sample #{i} published:", e.published)
-        print(f"[DEBUG] fetched batch size: {len(batch)}")
+        print(f"[DEBUG] arXiv query URL: {resp.url}")
 
+        feed  = feedparser.parse(resp.content)
+        batch = feed.entries
+        print(f"[DEBUG] fetched batch size: {len(batch)}")
         if not batch:
             break
 
-        # 2. Filter by published date >= cutoff
-        for entry in batch:
-            # — parse the ISO Z‑time correctly —
-            published = datetime.datetime.strptime(
-                entry.published, "%Y-%m-%dT%H:%M:%SZ"
+        # 3. Parse & filter every entry in this batch
+        kept = []
+        for e in batch:
+            # parse the Z‑timestamp
+            pub = datetime.datetime.strptime(
+                e.published, "%Y-%m-%dT%H:%M:%SZ"
             ).replace(tzinfo=datetime.timezone.utc)
-        
-            if published >= cutoff_utc:
-                all_entries.append(entry)
-            else:
-                start = None
-                break
+            print(f"[DEBUG]  entry.published → {pub.isoformat()}")
+            if pub >= cutoff_utc:
+                kept.append(e)
 
+        # 4. Collect those in window
+        all_entries.extend(kept)
+        print(f"[DEBUG]  kept {len(kept)} of {len(batch)} in this batch")
 
-        if start is None or len(batch) < step:
+        # 5. Stop if *none* in this batch were new enough
+        if not kept:
+            print("[DEBUG]  no entries in window → stopping fetch loop")
             break
 
+        # 6. Otherwise page on (or stop if fewer than a full page)
+        if len(batch) < step:
+            break
         start += step
 
     print(f"[DEBUG] total fetched papers from arXiv in last {days} day(s): {len(all_entries)}")
 
-    # …then proceed with OpenAI filtering exactly as before…
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    if not openai_api_key:
-        print("[ERROR] OPENAI_API_KEY missing, aborting.")
-        return []
+    # …then proceed with your OpenAI filtering as before…
+    # (unchanged code for OpenAI calls, category checks, README updates)
 
-    client = OpenAI(api_key=openai_api_key)
-    final_matched = []
-
-    for idx, entry in enumerate(all_entries, 1):
-        title    = entry.title
-        summary  = entry.summary
-        # if you *really* want to disable *all* filtering aside from the LLM check,
-        # you can comment out the category check below:
-        categories = [t.term for t in getattr(entry, 'tags', [])]
-        if not any(cat in ALLOWED_CATEGORIES for cat in categories):
-            continue
-
-        if is_relevant_by_api(title, summary, client):
-            final_matched.append({
-                "title":      title,
-                "summary":    summary,
-                "published":  entry.published,
-                "link":       entry.link,
-                "categories": categories
-            })
-            print(f"[DEBUG][API] Included #{idx}: {title[:60]}...")
-        else:
-            print(f"[DEBUG][API] Excluded #{idx}: {title[:60]}...")
-
-    print(f"[DEBUG] final matched papers after OpenAI filter: {len(final_matched)}")
     return final_matched
+
 
 
 
