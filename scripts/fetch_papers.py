@@ -79,8 +79,11 @@ def fetch_papers_combined(days=1):
         print(f"[DEBUG] fetching arXiv entries: {start} to {start+step}")
         resp = requests.get(base_url, params=params, timeout=30)
         resp.raise_for_status()
+        print("[DEBUG] arXiv query URL:", resp.url)
         feed = feedparser.parse(resp.content)
         batch = feed.entries
+        for i, e in enumerate(batch[:5], 1):
+            print(f"[DEBUG] sample #{i} published:", e.published)
         print(f"[DEBUG] fetched batch size: {len(batch)}")
 
         if not batch:
