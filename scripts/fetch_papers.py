@@ -5,6 +5,7 @@ import datetime
 from github import Github
 from openai import OpenAI
 
+
 ALLOWED_CATEGORIES = [
     "cs.AI", "cs.CL", "cs.CV", "cs.LG", "cs.NE", "cs.RO",
     "cs.IR", "stat.ML"
@@ -54,9 +55,6 @@ def is_relevant_by_api(title, summary, client, model="gpt-4-turbo"):
         return False
 
 def fetch_papers_combined(days=1):
-    import datetime
-    import requests
-    import feedparser
 
     now_utc   = datetime.datetime.now(datetime.timezone.utc)
     cutoff_utc = now_utc - datetime.timedelta(days=days)
@@ -90,13 +88,17 @@ def fetch_papers_combined(days=1):
 
         # 2. Filter by published date >= cutoff
         for entry in batch:
-            published = datetime.datetime.fromisoformat(entry.published)
+            # — parse the ISO Z‑time correctly —
+            published = datetime.datetime.strptime(
+                entry.published, "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=datetime.timezone.utc)
+        
             if published >= cutoff_utc:
                 all_entries.append(entry)
             else:
-                # since sorted descending, once we hit older papers we can stop entirely
                 start = None
                 break
+
 
         if start is None or len(batch) < step:
             break
