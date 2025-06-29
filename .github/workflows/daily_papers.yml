@@ -1,30 +1,71 @@
-name: Daily Paper Fetch
+name: Arxiv LLM Bias Paper Fetcher
 
 on:
   schedule:
+    # Run daily at 12:00 UTC
     - cron: '0 12 * * *'
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Fetch mode: daily or historical'
+        required: true
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - historical
+      days:
+        description: 'Number of days to fetch (only for daily mode)'
+        required: false
+        default: '1'
+        type: string
 
 jobs:
-  fetch-job:
+  fetch-papers:
     runs-on: ubuntu-latest
     steps:
-    - name: Check out
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: Install dependencies
-      run: |
-        pip install requests feedparser PyGithub openai
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
-    - name: Run fetch script
-      env:
-        TARGET_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}      # GitHub 的自动 token
-        TARGET_REPO_NAME: "YurenHao0426/awesome-llm-bias-papers"
-        UIUC_API_KEY: ${{ secrets.UIUC_API_KEY }}          # 取出你的API密钥
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      run: python scripts/fetch_papers.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run paper fetcher (Daily Mode)
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'daily')
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TARGET_REPO_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
+          TARGET_REPO_NAME: "YurenHao0426/awesome-llm-bias-papers"
+          FETCH_MODE: "daily"
+          FETCH_DAYS: ${{ github.event.inputs.days || '1' }}
+        run: python scripts/fetch_papers.py
+
+      - name: Run paper fetcher (Historical Mode)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'historical'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TARGET_REPO_TOKEN: ${{ secrets.TARGET_REPO_TOKEN }}
+          TARGET_REPO_NAME: "YurenHao0426/awesome-llm-bias-papers"
+          FETCH_MODE: "historical"
+        run: python scripts/fetch_papers.py
+
+      - name: Log completion
+        run: |
+          echo "Paper fetching completed successfully!"
+          echo "Mode: ${{ github.event.inputs.mode || 'daily' }}"
+          echo "Repository: YurenHao0426/awesome-llm-bias-papers"
