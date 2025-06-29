@@ -68,10 +68,28 @@ FETCH_MODE=historical python scripts/fetch_papers.py
 
 ### Testing
 
+Test the daily fetching functionality:
+```bash
+python scripts/test_daily_fetch.py
+```
+
 Test the historical fetching functionality:
 ```bash
 python scripts/test_historical_fetch.py
 ```
+
+### Debugging
+
+If the system completes too quickly or you suspect no papers are being fetched, use the debug script:
+```bash
+python scripts/debug_fetch.py
+```
+
+This will show detailed information about:
+- arXiv API connectivity
+- OpenAI API connectivity  
+- Number of papers fetched at each step
+- Sample papers and filtering results
 
 ## 🤖 GitHub Actions
 
@@ -118,8 +136,9 @@ Papers are considered relevant if they discuss:
 PaperFetcher/
 ├── scripts/
 │   ├── fetch_papers.py          # Main fetching script
+│   ├── test_daily_fetch.py      # Daily fetching test
 │   ├── test_historical_fetch.py # Historical fetching test
-│   └── [other test scripts]     # Legacy test scripts
+│   └── debug_fetch.py           # Debug and troubleshooting script
 ├── .github/
 │   └── workflows/
 │       └── daily_papers.yml     # GitHub Actions workflow
