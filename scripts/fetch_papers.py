@@ -486,24 +486,216 @@ class ArxivPaperFetcher:
         end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=years * 365)
         
+        # 从环境变量获取限制配置
+        max_papers = int(os.getenv("MAX_HISTORICAL_PAPERS", "50000"))  # 默认50000篇
+        max_per_category = int(os.getenv("MAX_PAPERS_PER_CATEGORY", "10000"))  # 每类别10000篇
+        
         logger.info(f"📚 历史模式: 获取过去 {years} 年的论文")
         logger.info(f"🕐 时间范围: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}")
-        logger.info(f"⚠️ 注意: 历史模式最多处理 5000 篇论文，可能需要较长时间")
+        logger.info(f"📊 配置限制:")
+        logger.info(f"   - 最大论文数: {max_papers:,} 篇")
+        logger.info(f"   - 每类别限制: {max_per_category:,} 篇")
         
-        papers = self.fetch_papers_by_date_range(start_date, end_date, max_papers=5000)
+        if max_papers >= 20000:
+            logger.info(f"⚠️ 大规模历史模式: 这可能需要很长时间和大量API调用")
+            logger.info(f"💡 建议: 可以通过环境变量调整限制")
+            logger.info(f"   - MAX_HISTORICAL_PAPERS={max_papers}")
+            logger.info(f"   - MAX_PAPERS_PER_CATEGORY={max_per_category}")
+        
+        papers = self.fetch_papers_by_date_range_unlimited(
+            start_date, end_date, max_papers=max_papers, max_per_category=max_per_category
+        )
         
         if papers:
             logger.info(f"📋 开始GPT-4o智能过滤阶段...")
             
             # 历史模式默认使用更高的并发数（因为论文数量多）
             use_parallel = os.getenv("USE_PARALLEL", "true").lower() == "true"
-            max_concurrent = int(os.getenv("MAX_CONCURRENT", "25"))  # 历史模式默认更高并发
+            max_concurrent = int(os.getenv("MAX_CONCURRENT", "50"))  # 历史模式默认更高并发
             
             return self.filter_papers_with_gpt(papers, use_parallel=use_parallel, 
                                              max_concurrent=max_concurrent)
         else:
             logger.warning("⚠️ 未获取到任何论文，跳过GPT过滤步骤")
             return []
+
+    def fetch_papers_by_date_range_unlimited(self, start_date: datetime, end_date: datetime, 
+                                           max_papers: int = 50000, max_per_category: int = 10000) -> List[Dict]:
+        """
+        Fetch papers by date range with higher limits for historical mode.
+        
+        Args:
+            start_date: Start date for paper search
+            end_date: End date for paper search
+            max_papers: Maximum total papers to fetch
+            max_per_category: Maximum papers per category
+            
+        Returns:
+            List of paper dictionaries
+        """
+        logger.info(f"🔍 开始获取论文 - 无限制模式")
+        logger.info(f"🕐 时间范围: {start_date.strftime('%Y-%m-%d %H:%M')} UTC ~ {end_date.strftime('%Y-%m-%d %H:%M')} UTC")
+        logger.info(f"📊 搜索配置:")
+        logger.info(f"   - 最大论文数: {max_papers:,}")
+        logger.info(f"   - 每类别限制: {max_per_category:,}")
+        logger.info(f"   - 搜索类别: {len(CS_CATEGORIES)} 个")
+        
+        all_papers_dict = {}  # 使用字典去重
+        total_raw_papers = 0
+        total_categories_processed = 0
+        
+        # 分别查询每个类别
+        for category in CS_CATEGORIES:
+            total_categories_processed += 1
+            logger.info(f"📂 处理类别 {total_categories_processed}/{len(CS_CATEGORIES)}: {category}")
+            
+            category_papers = self._fetch_papers_for_category_unlimited(
+                category, start_date, end_date, max_papers_per_category=max_per_category
+            )
+            
+            # 合并到总结果中（去重）
+            new_papers_count = 0
+            for paper in category_papers:
+                arxiv_id = paper['arxiv_id']
+                if arxiv_id not in all_papers_dict:
+                    all_papers_dict[arxiv_id] = paper
+                    new_papers_count += 1
+                    
+                    # 检查是否达到总数限制
+                    if len(all_papers_dict) >= max_papers:
+                        logger.info(f"⚠️ 达到最大论文数 {max_papers:,}，停止获取")
+                        break
+            
+            total_raw_papers += len(category_papers)
+            logger.info(f"   ✅ {category}: 获得{len(category_papers):,}篇, 新增{new_papers_count:,}篇")
+            
+            # 如果达到总数限制，停止
+            if len(all_papers_dict) >= max_papers:
+                break
+        
+        # 转换为列表并按日期排序
+        all_papers = list(all_papers_dict.values())
+        all_papers.sort(key=lambda x: x['updated'], reverse=True)
+        
+        logger.info(f"📊 抓取总结:")
+        logger.info(f"   - 处理了 {total_categories_processed} 个类别")
+        logger.info(f"   - 从arXiv获取了 {total_raw_papers:,} 篇原始论文")
+        logger.info(f"   - 去重后得到 {len(all_papers):,} 篇唯一论文")
+        
+        # 显示类别分布
+        if all_papers:
+            from collections import Counter
+            
+            # 日期分布
+            dates = []
+            for paper in all_papers:
+                paper_date = datetime.strptime(paper['updated'][:10], '%Y-%m-%d')
+                dates.append(paper_date.strftime('%Y-%m-%d'))
+            
+            date_counts = Counter(dates)
+            logger.info(f"📅 论文日期分布 (前10天):")
+            for date, count in date_counts.most_common(10):
+                days_ago = (datetime.now(timezone.utc).date() - datetime.strptime(date, '%Y-%m-%d').date()).days
+                logger.info(f"   - {date}: {count:,}篇 ({days_ago}天前)")
+            
+            # 类别分布
+            category_counts = Counter()
+            for paper in all_papers:
+                for cat in paper['categories']:
+                    if cat in CS_CATEGORIES:
+                        category_counts[cat] += 1
+            
+            logger.info(f"📊 类别分布:")
+            for cat, count in category_counts.most_common():
+                logger.info(f"   - {cat}: {count:,}篇")
+        
+        return all_papers
+
+    def _fetch_papers_for_category_unlimited(self, category: str, start_date: datetime, 
+                                           end_date: datetime, max_papers_per_category: int = 10000) -> List[Dict]:
+        """
+        Fetch papers for a specific category with higher limits.
+        
+        Args:
+            category: arXiv category (e.g., 'cs.AI')
+            start_date: Start date for paper search
+            end_date: End date for paper search
+            max_papers_per_category: Maximum papers to fetch for this category
+            
+        Returns:
+            List of paper dictionaries for this category
+        """
+        papers = []
+        start_index = 0
+        batch_count = 0
+        api_calls = 0
+        max_api_calls = max_papers_per_category // MAX_RESULTS_PER_BATCH + 100  # 动态计算API调用限制
+        
+        logger.info(f"   🎯 {category}: 开始获取，目标最多{max_papers_per_category:,}篇论文")
+        
+        while len(papers) < max_papers_per_category and api_calls < max_api_calls:
+            try:
+                batch_count += 1
+                api_calls += 1
+                
+                params = {
+                    "search_query": f"cat:{category}",
+                    "sortBy": "submittedDate",
+                    "sortOrder": "descending",
+                    "start": start_index,
+                    "max_results": min(MAX_RESULTS_PER_BATCH, max_papers_per_category - len(papers))
+                }
+                
+                if batch_count % 10 == 0:  # 每10批次显示一次详细进度
+                    logger.info(f"   📦 {category}第{batch_count}批次: 从索引{start_index}开始，已获取{len(papers):,}篇...")
+                
+                response = self.session.get(ARXIV_BASE_URL, params=params, timeout=30)
+                response.raise_for_status()
+                
+                feed = feedparser.parse(response.content)
+                entries = feed.entries
+                
+                logger.debug(f"   ✅ {category}第{batch_count}批次获取了 {len(entries)} 篇论文")
+                
+                if not entries:
+                    logger.debug(f"   📭 {category}: 没有更多论文")
+                    break
+                
+                # Filter papers by date
+                batch_papers = []
+                older_papers = 0
+                for entry in entries:
+                    paper_date = datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc)
+                    
+                    if paper_date < start_date:
+                        older_papers += 1
+                        continue
+                    
+                    if start_date <= paper_date <= end_date:
+                        paper_data = self._parse_paper_entry(entry)
+                        batch_papers.append(paper_data)
+                
+                papers.extend(batch_papers)
+                logger.debug(f"   📊 {category}第{batch_count}批次: {len(batch_papers)}篇符合日期, {older_papers}篇过旧")
+                
+                # If we found older papers, we can stop
+                if older_papers > 0:
+                    logger.debug(f"   🔚 {category}: 发现过旧论文，停止")
+                    break
+                
+                # If we got fewer papers than requested, we've reached the end
+                if len(entries) < MAX_RESULTS_PER_BATCH:
+                    logger.debug(f"   🔚 {category}: 到达数据末尾")
+                    break
+                
+                start_index += MAX_RESULTS_PER_BATCH
+                
+            except Exception as e:
+                logger.error(f"   ❌ {category}抓取出错: {e}")
+                break
+        
+        logger.info(f"   ✅ {category}: 完成，获取{len(papers):,}篇论文 (API调用{api_calls}次)")
+        return papers
 
 
 class GitHubUpdater:

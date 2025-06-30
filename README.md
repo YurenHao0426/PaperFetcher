@@ -11,6 +11,8 @@ An automated system for discovering and cataloging research papers related to AI
 - **Comprehensive Filtering**: Focuses on AI/ML categories most likely to contain social impact research
 - **Social Good Focus**: Identifies bias and fairness research across healthcare, education, criminal justice, and more
 - **Reverse Chronological Order**: Always maintains newest papers at the top of README for easy access
+- **Unlimited Historical Mode**: Configurable limits for processing tens of thousands of papers
+- **Scalable Architecture**: Support for research-grade data collection with custom memory and API limits
 
 ## 🔧 Setup & Configuration
 
@@ -63,9 +65,24 @@ FETCH_DAYS=7 python scripts/fetch_papers.py
 
 ### Historical Paper Fetching
 
-Fetch papers from the past 2 years:
+Fetch papers from the past 2 years (default limits: 50,000 papers):
 ```bash
 FETCH_MODE=historical python scripts/fetch_papers.py
+```
+
+**Unlimited Historical Mode** - Configure custom limits for large-scale data collection:
+```bash
+# Small scale (for testing)
+MAX_HISTORICAL_PAPERS=1000 MAX_PAPERS_PER_CATEGORY=200 FETCH_MODE=historical python scripts/fetch_papers.py
+
+# Medium scale (recommended for daily use)
+MAX_HISTORICAL_PAPERS=5000 MAX_PAPERS_PER_CATEGORY=1000 FETCH_MODE=historical python scripts/fetch_papers.py
+
+# Large scale (for research purposes)
+MAX_HISTORICAL_PAPERS=50000 MAX_PAPERS_PER_CATEGORY=10000 FETCH_MODE=historical python scripts/fetch_papers.py
+
+# Ultra large scale (use with caution)
+MAX_HISTORICAL_PAPERS=100000 MAX_PAPERS_PER_CATEGORY=20000 MAX_CONCURRENT=100 FETCH_MODE=historical python scripts/fetch_papers.py
 ```
 
 ### Testing
@@ -88,6 +105,11 @@ python scripts/test_social_good_prompt.py
 Test the reverse chronological ordering:
 ```bash
 python scripts/test_reverse_chronological.py
+```
+
+Test the unlimited historical mode:
+```bash
+python scripts/test_unlimited_historical.py
 ```
 
 ### Debugging
@@ -125,6 +147,57 @@ USE_PARALLEL=false python scripts/fetch_papers.py
 ```
 
 **Expected speedup:** 3-10x faster processing depending on the number of papers and network conditions.
+
+## 🚀 Unlimited Historical Mode
+
+The system now supports processing tens of thousands of papers for comprehensive historical analysis.
+
+### Configuration Options
+
+| Scale | Papers | Per Category | Concurrent | Use Case |
+|-------|--------|--------------|------------|----------|
+| **Small** | 1,000 | 200 | 10 | Testing & Development |
+| **Medium** | 5,000 | 1,000 | 25 | Daily Research |
+| **Large** | 50,000 | 10,000 | 50 | Comprehensive Analysis |
+| **Ultra** | 100,000+ | 20,000+ | 100+ | Research-Grade Mining |
+
+### Performance Estimates
+
+- **Small Scale**: ~15 minutes, ~$1 API cost
+- **Medium Scale**: ~1 hour, ~$5 API cost  
+- **Large Scale**: ~4 hours, ~$50 API cost
+- **Ultra Scale**: ~15+ hours, ~$100+ API cost
+
+### Memory Requirements
+
+- **4GB RAM**: Up to 20,000 papers
+- **8GB RAM**: Up to 50,000 papers
+- **16GB+ RAM**: 100,000+ papers
+
+### Usage Examples
+
+```bash
+# Test configuration (recommended first run)
+MAX_HISTORICAL_PAPERS=1000 \
+MAX_PAPERS_PER_CATEGORY=200 \
+MAX_CONCURRENT=10 \
+FETCH_MODE=historical python scripts/fetch_papers.py
+
+# Research configuration (comprehensive historical data)
+MAX_HISTORICAL_PAPERS=50000 \
+MAX_PAPERS_PER_CATEGORY=10000 \
+MAX_CONCURRENT=50 \
+FETCH_MODE=historical python scripts/fetch_papers.py
+```
+
+### Important Considerations
+
+⚠️ **Before running large-scale operations:**
+- Test with small configurations first
+- Monitor API usage and costs
+- Ensure sufficient memory and stable network
+- Consider running during off-peak hours
+- Large runs may take several hours to complete
 
 ## 🤖 GitHub Actions
 
@@ -181,6 +254,7 @@ PaperFetcher/
 │   ├── test_improved_fetch.py       # Improved fetching logic test
 │   ├── test_social_good_prompt.py   # Social Good prompt testing
 │   ├── test_reverse_chronological.py # Reverse chronological order testing
+│   ├── test_unlimited_historical.py  # Unlimited historical mode testing
 │   └── debug_fetch.py               # Debug and troubleshooting script
 ├── .github/
 │   └── workflows/
@@ -209,6 +283,10 @@ PaperFetcher/
 | `TARGET_REPO_NAME` | Target repository (owner/repo format) | `YurenHao0426/awesome-llm-bias-papers` | No |
 | `FETCH_MODE` | Mode: `daily` or `historical` | `daily` | No |
 | `FETCH_DAYS` | Number of days to fetch (daily mode) | `1` | No |
+| `MAX_HISTORICAL_PAPERS` | Maximum papers for historical mode | `50000` | No |
+| `MAX_PAPERS_PER_CATEGORY` | Maximum papers per arXiv category | `10000` | No |
+| `USE_PARALLEL` | Enable parallel processing | `true` | No |
+| `MAX_CONCURRENT` | Maximum concurrent requests | `16` (daily), `50` (historical) | No |
 
 ## 🐛 Troubleshooting
 
