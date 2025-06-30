@@ -58,24 +58,30 @@ CS_CATEGORIES = [
     "stat.ML" # Machine Learning (Statistics)
 ]
 
-GPT_SYSTEM_PROMPT = """You are an expert researcher in AI/ML bias, fairness, and social good applications.
+GPT_SYSTEM_PROMPT = """You are an expert researcher in AI bias, fairness, and social good applications.
 
-Your task is to analyze a paper's title and abstract to determine if it's relevant to bias and fairness research with social good implications.
+Your task is to analyze a paper's title and abstract to determine if it's relevant to bias and fairness research with clear social good implications.
 
-A paper is relevant if it discusses:
-- Bias, fairness, or discrimination in AI/ML systems with societal impact
-- Algorithmic fairness in healthcare, education, criminal justice, hiring, or finance
-- Demographic bias affecting marginalized or underrepresented groups
-- Data bias and its social consequences
-- Ethical AI and responsible AI deployment in society
-- AI safety and alignment with human values and social welfare
-- Bias evaluation, auditing, or mitigation in real-world applications
-- Representation and inclusion in AI systems and datasets
-- Social implications of AI bias (e.g., perpetuating inequality)
-- Fairness in recommendation systems, search engines, or content moderation
-- Bias in computer vision, NLP, or other AI domains affecting people
+A paper is RELEVANT if it discusses:
+- Algorithmic fairness in real-world applications (healthcare, education, criminal justice, hiring, finance)
+- Demographic bias affecting marginalized or underrepresented groups in society
+- Social implications of AI bias (perpetuating inequality, discrimination, harm to vulnerable populations)
+- Ethical AI deployment addressing social justice and human welfare
+- Bias auditing/evaluation in systems that directly impact people's lives
+- Data bias with clear social consequences and harm
+- AI safety and alignment with human values in societal applications
+- Representation and inclusion in AI systems used by the public
+- Fair recommendation systems, search engines, or content moderation with social impact
 
-The focus is on research that addresses how AI bias impacts society, vulnerable populations, or social justice, rather than purely technical ML advances without clear social relevance.
+A paper is NOT RELEVANT if it discusses:
+- Purely technical computer vision bias without clear social applications
+- Generic ML fairness metrics without real-world context
+- Theoretical bias research without societal implications
+- Technical optimization of models without addressing social harm
+- Academic benchmarking without connection to social good
+- Pure algorithmic improvements without considering human impact
+
+FOCUS: The research must clearly address how AI bias affects society, vulnerable populations, or social justice. Reject purely technical advances without explicit social relevance.
 
 Respond with exactly "1" if the paper is relevant, or "0" if it's not relevant.
 Do not include any other text in your response."""
@@ -106,9 +112,9 @@ class ArxivPaperFetcher:
         Returns:
             List of paper dictionaries
         """
-        logger.info(f"🔍 开始从arXiv抓取论文: {start_date.date()} 到 {end_date.date()}")
-        logger.info(f"📋 目标类别: {', '.join(CS_CATEGORIES)}")
-        logger.info(f"🔧 改进策略: 分别查询每个类别以避免OR查询限制")
+        logger.info(f"🔍 Starting arXiv paper fetch: {start_date.date()} to {end_date.date()}")
+        logger.info(f"📋 Target categories: {', '.join(CS_CATEGORIES)}")
+        logger.info(f"🔧 Strategy: Query each category separately to avoid OR query limitations")
         
         all_papers_dict = {}  # 使用字典去重，key为arxiv_id
         total_categories_processed = 0
@@ -117,13 +123,13 @@ class ArxivPaperFetcher:
         # 分别查询每个类别
         for category in CS_CATEGORIES:
             total_categories_processed += 1
-            logger.info(f"📂 处理类别 {total_categories_processed}/{len(CS_CATEGORIES)}: {category}")
+            logger.info(f"📂 Processing category {total_categories_processed}/{len(CS_CATEGORIES)}: {category}")
             
             category_papers = self._fetch_papers_for_category(
                 category, start_date, end_date, max_papers_per_category=500
             )
             
-            # 合并到总结果中（去重）
+            # Merge to total results (deduplication)
             new_papers_count = 0
             for paper in category_papers:
                 arxiv_id = paper['arxiv_id']
@@ -132,43 +138,43 @@ class ArxivPaperFetcher:
                     new_papers_count += 1
             
             total_raw_papers += len(category_papers)
-            logger.info(f"   ✅ {category}: 获得{len(category_papers)}篇, 新增{new_papers_count}篇")
+            logger.info(f"   ✅ {category}: Found {len(category_papers)} papers, {new_papers_count} new")
         
-        # 转换为列表并按日期排序
+        # Convert to list and sort by date
         all_papers = list(all_papers_dict.values())
         all_papers.sort(key=lambda x: x['updated'], reverse=True)
         
-        logger.info(f"📊 抓取总结:")
-        logger.info(f"   - 处理了 {total_categories_processed} 个类别")
-        logger.info(f"   - 从arXiv获取了 {total_raw_papers} 篇原始论文")
-        logger.info(f"   - 去重后得到 {len(all_papers)} 篇唯一论文")
+        logger.info(f"📊 Fetch Summary:")
+        logger.info(f"   - Processed {total_categories_processed} categories")
+        logger.info(f"   - Retrieved {total_raw_papers} raw papers from arXiv")
+        logger.info(f"   - After deduplication: {len(all_papers)} unique papers")
         
-        # 显示类别分布
+        # Show category distribution
         if all_papers:
             from collections import Counter
             
-            # 日期分布
+            # Date distribution
             dates = []
             for paper in all_papers:
                 paper_date = datetime.strptime(paper['updated'][:10], '%Y-%m-%d')
                 dates.append(paper_date.strftime('%Y-%m-%d'))
             
             date_counts = Counter(dates)
-            logger.info(f"📅 论文日期分布 (前5天):")
+            logger.info(f"📅 Paper date distribution (top 5 days):")
             for date, count in date_counts.most_common(5):
                 days_ago = (datetime.now(timezone.utc).date() - datetime.strptime(date, '%Y-%m-%d').date()).days
-                logger.info(f"   - {date}: {count}篇 ({days_ago}天前)")
+                logger.info(f"   - {date}: {count} papers ({days_ago} days ago)")
             
-            # 类别分布
+            # Category distribution
             category_counts = Counter()
             for paper in all_papers:
                 for cat in paper['categories']:
                     if cat in CS_CATEGORIES:
                         category_counts[cat] += 1
             
-            logger.info(f"📊 类别分布:")
+            logger.info(f"📊 Category distribution:")
             for cat, count in category_counts.most_common():
-                logger.info(f"   - {cat}: {count}篇")
+                logger.info(f"   - {cat}: {count} papers")
         
         return all_papers
     
@@ -283,48 +289,48 @@ class ArxivPaperFetcher:
             List of relevant papers
         """
         if not papers:
-            logger.warning("⚠️ 没有论文需要过滤！")
+            logger.warning("⚠️ No papers to filter!")
             return []
             
         if use_parallel and len(papers) > 5:
-            logger.info(f"🚀 使用并行模式处理 {len(papers)} 篇论文 (最大并发: {max_concurrent})")
+            logger.info(f"🚀 Using parallel mode for {len(papers)} papers (max concurrent: {max_concurrent})")
             return self._filter_papers_parallel(papers, max_concurrent)
         else:
-            logger.info(f"🔄 使用串行模式处理 {len(papers)} 篇论文")
+            logger.info(f"🔄 Using serial mode for {len(papers)} papers")
             return self._filter_papers_sequential(papers)
     
     def _filter_papers_sequential(self, papers: List[Dict]) -> List[Dict]:
         """Serial processing of papers (original method)."""
-        logger.info(f"🤖 开始使用GPT-4o过滤论文...")
-        logger.info(f"📝 待处理论文数量: {len(papers)} 篇")
+        logger.info(f"🤖 Starting GPT-4o paper filtering...")
+        logger.info(f"📝 Papers to process: {len(papers)}")
         
         relevant_papers = []
         processed_count = 0
         
         for i, paper in enumerate(papers, 1):
             try:
-                logger.info(f"🔍 处理第 {i}/{len(papers)} 篇论文: {paper['title'][:60]}...")
+                logger.info(f"🔍 Processing paper {i}/{len(papers)}: {paper['title'][:60]}...")
                 is_relevant = self._check_paper_relevance(paper)
                 processed_count += 1
                 
                 if is_relevant:
                     relevant_papers.append(paper)
-                    logger.info(f"✅ 第 {i} 篇论文 [相关]: {paper['title'][:80]}...")
+                    logger.info(f"✅ Paper {i} [RELEVANT]: {paper['title'][:80]}...")
                 else:
-                    logger.info(f"❌ 第 {i} 篇论文 [不相关]: {paper['title'][:80]}...")
+                    logger.info(f"❌ Paper {i} [NOT RELEVANT]: {paper['title'][:80]}...")
                     
-                # 每处理10篇论文显示一次进度
+                # Show progress every 10 papers
                 if i % 10 == 0:
-                    logger.info(f"📊 进度更新: 已处理 {i}/{len(papers)} 篇论文，发现 {len(relevant_papers)} 篇相关论文")
+                    logger.info(f"📊 Progress update: Processed {i}/{len(papers)} papers, found {len(relevant_papers)} relevant")
                     
             except Exception as e:
-                logger.error(f"❌ 处理第 {i} 篇论文时出错: {e}")
+                logger.error(f"❌ Error processing paper {i}: {e}")
                 continue
         
-        logger.info(f"🎯 GPT-4o过滤完成!")
-        logger.info(f"   - 总共处理: {processed_count} 篇论文")
-        logger.info(f"   - 发现相关: {len(relevant_papers)} 篇论文")
-        logger.info(f"   - 相关比例: {len(relevant_papers)/processed_count*100:.1f}%" if processed_count > 0 else "   - 相关比例: 0%")
+        logger.info(f"🎯 GPT-4o filtering completed!")
+        logger.info(f"   - Total processed: {processed_count} papers")
+        logger.info(f"   - Found relevant: {len(relevant_papers)} papers")
+        logger.info(f"   - Relevance ratio: {len(relevant_papers)/processed_count*100:.1f}%" if processed_count > 0 else "   - Relevance ratio: 0%")
         
         return relevant_papers
     

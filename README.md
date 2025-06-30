@@ -112,6 +112,11 @@ Test the unlimited historical mode:
 python scripts/test_unlimited_historical.py
 ```
 
+Test the enhanced social good filtering:
+```bash
+python scripts/test_social_good_filtering.py
+```
+
 ### Debugging
 
 If the system completes too quickly or you suspect no papers are being fetched, use the debug script:
@@ -255,6 +260,7 @@ PaperFetcher/
 │   ├── test_social_good_prompt.py   # Social Good prompt testing
 │   ├── test_reverse_chronological.py # Reverse chronological order testing
 │   ├── test_unlimited_historical.py  # Unlimited historical mode testing
+│   ├── test_social_good_filtering.py # Enhanced social good filtering test
 │   └── debug_fetch.py               # Debug and troubleshooting script
 ├── .github/
 │   └── workflows/
