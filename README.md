@@ -1,14 +1,16 @@
-# ArXiv LLM Bias Paper Fetcher
+# ArXiv Social Good AI Paper Fetcher
 
-An automated system for discovering and cataloging research papers related to bias in Large Language Models (LLMs) from arXiv.org. This tool uses GPT-4o to intelligently filter papers and automatically updates a target repository with newly discovered relevant research.
+An automated system for discovering and cataloging research papers related to AI bias, fairness, and social good from arXiv.org. This tool uses GPT-4o to intelligently filter papers for social impact and automatically updates a target repository with newly discovered relevant research.
 
 ## 🎯 Features
 
-- **Intelligent Paper Detection**: Uses GPT-4o to analyze paper titles and abstracts for LLM bias relevance
+- **Intelligent Paper Detection**: Uses GPT-4o to analyze paper titles and abstracts for social good and fairness relevance
 - **Automated Daily Updates**: Runs daily via GitHub Actions to fetch the latest papers
 - **Historical Paper Collection**: Can fetch and process papers from the past 2 years
 - **GitHub Integration**: Automatically updates target repository README with new findings
-- **Comprehensive Filtering**: Focuses on AI/ML categories most likely to contain relevant research
+- **Comprehensive Filtering**: Focuses on AI/ML categories most likely to contain social impact research
+- **Social Good Focus**: Identifies bias and fairness research across healthcare, education, criminal justice, and more
+- **Reverse Chronological Order**: Always maintains newest papers at the top of README for easy access
 
 ## 🔧 Setup & Configuration
 
@@ -78,6 +80,16 @@ Test the historical fetching functionality:
 python scripts/test_historical_fetch.py
 ```
 
+Test the Social Good prompt effectiveness:
+```bash
+python scripts/test_social_good_prompt.py
+```
+
+Test the reverse chronological ordering:
+```bash
+python scripts/test_reverse_chronological.py
+```
+
 ### Debugging
 
 If the system completes too quickly or you suspect no papers are being fetched, use the debug script:
@@ -90,6 +102,29 @@ This will show detailed information about:
 - OpenAI API connectivity  
 - Number of papers fetched at each step
 - Sample papers and filtering results
+
+### Parallel Processing
+
+The system now supports parallel processing of OpenAI requests for faster filtering:
+
+```bash
+# Test parallel vs sequential performance
+python scripts/test_parallel_processing.py
+```
+
+**Performance optimization options:**
+```bash
+# Enable/disable parallel processing
+USE_PARALLEL=true python scripts/fetch_papers.py
+
+# Control concurrent requests (default: 16 for daily, 25 for historical)
+MAX_CONCURRENT=20 python scripts/fetch_papers.py
+
+# Disable parallel processing for debugging
+USE_PARALLEL=false python scripts/fetch_papers.py
+```
+
+**Expected speedup:** 3-10x faster processing depending on the number of papers and network conditions.
 
 ## 🤖 GitHub Actions
 
@@ -123,36 +158,45 @@ The system searches these arXiv categories for relevant papers:
 
 Papers are considered relevant if they discuss:
 
-- Bias in large language models, generative AI, or foundation models
-- Fairness issues in NLP models or text generation
-- Ethical concerns with language models
-- Demographic bias in AI systems
-- Alignment and safety of language models
-- Bias evaluation or mitigation in NLP
+- **Bias and fairness** in AI/ML systems with societal impact
+- **Algorithmic fairness** in healthcare, education, criminal justice, hiring, or finance
+- **Demographic bias** affecting marginalized or underrepresented groups
+- **Data bias** and its social consequences
+- **Ethical AI** and responsible AI deployment in society
+- **AI safety** and alignment with human values and social welfare
+- **Bias evaluation, auditing, or mitigation** in real-world applications
+- **Representation and inclusion** in AI systems and datasets
+- **Social implications** of AI bias (e.g., perpetuating inequality)
+- **Fairness** in recommendation systems, search engines, or content moderation
 
 ## 📁 Project Structure
 
 ```
 PaperFetcher/
 ├── scripts/
-│   ├── fetch_papers.py          # Main fetching script
-│   ├── test_daily_fetch.py      # Daily fetching test
-│   ├── test_historical_fetch.py # Historical fetching test
-│   └── debug_fetch.py           # Debug and troubleshooting script
+│   ├── fetch_papers.py              # Main fetching script (with parallel support)
+│   ├── test_daily_fetch.py          # Daily fetching test
+│   ├── test_historical_fetch.py     # Historical fetching test
+│   ├── test_parallel_processing.py  # Parallel processing performance test
+│   ├── test_improved_fetch.py       # Improved fetching logic test
+│   ├── test_social_good_prompt.py   # Social Good prompt testing
+│   ├── test_reverse_chronological.py # Reverse chronological order testing
+│   └── debug_fetch.py               # Debug and troubleshooting script
 ├── .github/
 │   └── workflows/
-│       └── daily_papers.yml     # GitHub Actions workflow
-├── requirements.txt             # Python dependencies
-└── README.md                   # This file
+│       └── daily_papers.yml         # GitHub Actions workflow
+├── requirements.txt                 # Python dependencies
+└── README.md                       # This file
 ```
 
 ## 🔍 How It Works
 
 1. **Paper Retrieval**: Queries arXiv API for papers in relevant CS categories
 2. **Date Filtering**: Filters papers based on submission/update dates
-3. **AI Analysis**: Uses GPT-4o to analyze each paper's title and abstract
-4. **Repository Update**: Adds relevant papers to target repository's README
-5. **Version Control**: Commits changes with descriptive commit messages
+3. **AI Analysis**: Uses GPT-4o to analyze each paper's title and abstract for social good relevance
+4. **Social Impact Assessment**: Evaluates papers for bias, fairness, and societal implications
+5. **Repository Update**: Adds relevant papers to target repository's README in reverse chronological order
+6. **Version Control**: Commits changes with descriptive commit messages
 
 ## ⚙️ Configuration Options
 
